@@ -19,6 +19,9 @@
 #include "engine.h"
 #include "sys.h"
 #include "util.h"
+#ifdef __sh__
+#include "saturn_platform.h"
+#endif
 
 
 static const char *USAGE = 
@@ -49,6 +52,19 @@ extern System *stub ;//= System_SDL_create();
 int main(int argc, char *argv[]) {
 	const char *dataPath = ".";
 	const char *savePath = ".";
+#ifdef __sh__
+	// Bring SRL up before anything else: malloc and operator new are routed onto
+	// its heap (saturn_compat.cxx / saturn_new.cxx) and that heap does not exist
+	// until Core::Initialize has run, so the `new Engine` below would fault.
+	sat_boot_init();
+
+	// No command line on a console. argc/argv are whatever happened to be in
+	// those registers when the SRL startup called main(), so walking them would
+	// dereference garbage. Both paths stay "." -- the CD backend ignores the
+	// directory anyway and resolves names against the disc root.
+	(void)argc;
+	(void)argv;
+#else
 	for (int i = 1; i < argc; ++i) {
 		bool opt = false;
 		if (strlen(argv[i]) >= 2) {
@@ -61,6 +77,7 @@ int main(int argc, char *argv[]) {
 			return 0;
 		}
 	}
+#endif
 	//FCS
 	//g_debugMask = DBG_INFO; // DBG_VM | DBG_BANK | DBG_VIDEO | DBG_SER | DBG_SND
 	//g_debugMask = 0 ;//DBG_INFO |  DBG_VM | DBG_BANK | DBG_VIDEO | DBG_SER | DBG_SND ;

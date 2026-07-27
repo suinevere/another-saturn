@@ -12,3 +12,31 @@ TODO
 
 .DS_Store
 DerivedData
+
+# --- Saturn build output -----------------------------------------------------
+saturn/BuildDrop/
+**/*.o
+**/*.elf
+**/*.iso
+**/*.cue
+**/*.bin.tmp
+# 0.bin is the linked program objcopy'd into the disc image on every build.
+# It is committed as part of the CD skeleton, so ignore only the build dir above.
+
+# --- Cross-compiler and iso2raw (fetched into the SDK submodule, never committed)
+SaturnRingLib/Compiler/
+SaturnRingLib/tools/bin/
+
+# --- Host/IDE build dirs -----------------------------------------------------
+cmake-build-*/
+
+# --- Non-free game data ------------------------------------------------------
+# Another World's original PC DOS data files. Required to run, never committed.
+# Both cases listed: the engine asks for them lowercase (bank.cxx builds the name
+# with sprintf("bank%02x")) and ISO9660 stores them uppercase, so either spelling
+# can show up on disk depending on where they were copied from. Git's ignore
+# matching is case-sensitive wherever core.ignorecase is false, e.g. CI on Linux.
+saturn/cd/data/BANK*
+saturn/cd/data/bank*
+saturn/cd/data/MEMLIST.BIN
+saturn/cd/data/memlist.bin

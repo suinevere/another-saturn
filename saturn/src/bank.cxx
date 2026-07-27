@@ -20,6 +20,10 @@
 #include "file.h"
 #include "resource.h"
 
+#ifdef __sh__
+#include "system/saturn_audio.h"
+#endif
+
 
 Bank::Bank(const char *dataDir)
 	: _dataDir(dataDir) {
@@ -89,7 +93,49 @@ bool Bank::unpack() {
 	_unpCtx.crc = READ_BE_UINT32(_iBuf); _iBuf -= 4;
 	_unpCtx.chk = READ_BE_UINT32(_iBuf); _iBuf -= 4;
 	_unpCtx.crc ^= _unpCtx.chk;
+
+	// A decompression is the longest the engine ever goes without reaching the
+	// per-frame audio pump, so without this the PCM ring drains and the music
+	// gaps during loading.
+	//
+	// This was removed once, on the theory that Mixer::mix reads sample data out
+	// of the very block being rewritten here. That theory was wrong -- the noise
+	// blamed on it was a signed/unsigned mismatch on the way to the driver, and
+	// it was there with or without this pump. The reentrancy is in fact safe:
+	//
+	//   - Loads append. resource.cxx:195,216 place each resource at
+	//     _scriptCurPtr and then advance it, so a load never lands on a sound
+	//     that is already playing.
+	//   - The one place the block rewinds is Resource::invalidateAll, reached
+	//     through setupPart -- and initForPart calls mixer->stopAll() first
+	//     (vm.cxx:384, before 389). Nothing is playing when it happens.
+	//   - unpack itself writes only within its own resource, backwards from
+	//     _startBuf + datasize - 1.
+	//
+	// sat_audio_update, so SfxPlayer's timers run too. Feeding the ring alone is
+	// not enough: with the sequencer stopped the channels play out their current
+	// samples and nothing starts new ones, so a load came out as silence -- no
+	// popping, because the ring was full of perfectly valid nothing.
+	//
+	// Running the sequencer here is safe. It reads a resource only through
+	// me->bufPtr and only when me->state is MEMENTRY_STATE_LOADED
+	// (sfxplayer.cxx:53,86), and resource.cxx calls readBank at :209 before
+	// setting either at :214-215. The entry being decompressed is therefore
+	// invisible to the sequencer for the whole of this function.
+	//
+	// Throttled because the loop body decodes only a few bytes per pass, and the
+	// driver call is far more expensive than the decode it would be interleaved
+	// with. 256 passes is still hundreds of pumps across a large resource.
+#ifdef __sh__
+	uint16_t pumpCountdown = 256;
+#endif
 	do {
+#ifdef __sh__
+		if (--pumpCountdown == 0) {
+			pumpCountdown = 256;
+			sat_audio_update();
+		}
+#endif
 		if (!nextChunk()) {
 			_unpCtx.size = 1;
 			if (!nextChunk()) {

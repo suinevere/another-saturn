@@ -1,0 +1,3 @@
+[submodule "SaturnRingLib"]
+	path = SaturnRingLib
+	url = git@github.com:ReyeMe/SaturnRingLib.git

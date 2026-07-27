@@ -335,7 +335,18 @@ void Resource::setupPart(uint16_t partId) {
 }
 
 void Resource::allocMemBlock() {
+#ifdef __sh__
+	// Low Work RAM on purpose, not by fallback -- see sat_malloc_low in
+	// saturn_compat.h. This block is filled once from CD and then read
+	// sequentially, so it is the one that can afford the slower bank; the
+	// video pages, which the rasterizer writes per-pixel, keep the fast one.
+	_memPtrStart = (uint8_t *)sat_malloc_low(MEM_BLOCK_SIZE);
+#else
 	_memPtrStart = (uint8_t *)malloc(MEM_BLOCK_SIZE);
+#endif
+	if (_memPtrStart == 0) {
+		error("Resource::allocMemBlock() out of memory for %d bytes", MEM_BLOCK_SIZE);
+	}
 	_scriptBakPtr = _scriptCurPtr = _memPtrStart;
 	_vidBakPtr = _vidCurPtr = _memPtrStart + MEM_BLOCK_SIZE - 0x800 * 16; //0x800 = 2048, so we have 32KB free for vidBack and vidCur
 	_useSegVideo2 = false;

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/SaturnRingLib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/SaturnRingLib/modules/SaturnMathPP" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/SaturnRingLib/modules/tlsf" vcs="Git" />
+  </component>
+</project>

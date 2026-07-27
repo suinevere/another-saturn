@@ -21,13 +21,21 @@
 #include "sys.h"
 
 
+// TEMPORARY. Counts samples that actually hit the clamp. The mixer sums four
+// channels into 8 bits, so a busy passage can saturate, and clipping sounds like
+// sustained crackle -- indistinguishable by ear from the ring running dry, but
+// needing the opposite fix. A large number here means level, not starvation.
+extern "C" { uint32_t g_mixClips = 0; }
+
 static int8_t addclamp(int a, int b) {
 	int add = a + b;
 	if (add < -128) {
 		add = -128;
+		g_mixClips++;
 	}
 	else if (add > 127) {
 		add = 127;
+		g_mixClips++;
 	}
 	return (int8_t)add;
 }
@@ -55,11 +63,17 @@ void Mixer::playChannel(uint8_t channel, const MixerChunk *mc, uint16_t freq, ui
 	// The mutex is acquired in the constructor
 	MutexStack(sys, _mutex);
 	MixerChannel *ch = &_channels[channel];
-	ch->active = true;
+	// active is set LAST, and that ordering matters on Saturn: mix() runs from
+	// the vblank interrupt, so it can land in the middle of this function. A
+	// channel becomes visible to the mixer only once every field describing it
+	// is already in place. Setting active first -- as this did -- left a window
+	// where the mixer would play the previous sound's chunk with this one's
+	// state.
 	ch->volume = volume;
 	ch->chunk = *mc;
 	ch->chunkPos = 0;
 	ch->chunkInc = (freq << 8) / sys->getOutputSampleRate();
+	ch->active = true;
 
 	//At the end of the scope the MutexStack destructor is called and the mutex is released. 
 }
@@ -113,15 +127,35 @@ void Mixer::mix(int8_t *buf, int len) {
 			p1 = ch->chunkPos >> 8;
 			ch->chunkPos += ch->chunkInc;
 
+			// Both end tests are >= rather than ==, which they were. p1 advances
+			// by chunkInc >> 8 per output sample, so it steps over the exact end
+			// value for any note whose frequency exceeds the output rate -- and
+			// then neither test ever fires and playback runs off the end of the
+			// sample through whatever follows it in the resource block. At 32000
+			// that needs a 32 kHz note and does not happen in practice, but it
+			// did at the original 11025, and >= costs nothing.
 			if (ch->chunk.loopLen != 0) {
-				if (p1 == ch->chunk.loopPos + ch->chunk.loopLen - 1) {
+				if (p1 >= ch->chunk.loopPos + ch->chunk.loopLen - 1) {
 					debug(DBG_SND, "Looping sample on channel %d", i);
-					ch->chunkPos = p2 = ch->chunk.loopPos;
+					// chunkPos is 16.8 fixed point -- p1 is chunkPos >> 8 --
+					// while loopPos is a plain sample index, so it has to be
+					// shifted up to mean the same thing. Assigning it directly
+					// set the position 256 times too small, and playback
+					// restarted near the beginning of the sample instead of at
+					// the loop point, grinding through the wrong region until it
+					// reached the end test again.
+					//
+					// It only bites samples that loop, and it is invisible when
+					// loopPos is 0 -- which is exactly the case sfxplayer.cxx:157
+					// sets for unlooped samples. Hence scratchiness on sustained
+					// notes of some instruments and nothing else.
+					ch->chunkPos = (uint32_t)ch->chunk.loopPos << 8;
+					p2 = ch->chunk.loopPos;
 				} else {
 					p2 = p1 + 1;
 				}
 			} else {
-				if (p1 == ch->chunk.len - 1) {
+				if (p1 >= ch->chunk.len - 1) {
 					debug(DBG_SND, "Stopping sample on channel %d", i);
 					ch->active = false;
 					break;

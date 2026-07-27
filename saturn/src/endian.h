@@ -21,9 +21,31 @@
 
 #include <stdint.h>
 
+//Hitachi SH-2 -- the Sega Saturn's CPU, running big-endian.
+//
+//Checked before and independently of AUTO_DETECT_PLATFORM: that macro is opt-in
+//(the host CMake build passes -DAUTO_DETECT_PLATFORM; the Saturn makefile does
+//not), and with it undefined the whole detection block below is skipped and the
+//#error at the bottom fires. There is nothing to auto-detect here anyway -- if
+//we are compiling for SH-2 we are building for the Saturn.
+//
+//SYS_NO_UNALIGNED_ACCESS is the important half. The SH-2 raises an address error
+//on any word/long load that is not naturally aligned, where x86 just does it.
+//The engine reads big-endian values straight out of packed game data at whatever
+//offset it happens to be at -- Ptr::fetchWord (intern.h) walks bytecode a byte
+//at a time, and sfxplayer.cxx steps through pattern and instrument data the same
+//way -- so odd addresses are routine, not an edge case. Taking the "native"
+//direct-load path would fault almost immediately, so we force the
+//byte-assembling path below instead. That path builds the value from individual
+//bytes, which is correct on either endianness and needs no alignment.
+#if defined(__sh__) || defined(__SH2__) || defined(__sh2__)
+  #define SYS_BIG_ENDIAN
+  #define SYS_NO_UNALIGNED_ACCESS
+#endif
+
 //FCS added for windows build
 //JWS added automatic platform detection
-#if defined(AUTO_DETECT_PLATFORM)
+#if defined(AUTO_DETECT_PLATFORM) && !defined(SYS_BIG_ENDIAN) && !defined(SYS_LITTLE_ENDIAN)
   #if defined(_WIN32) || defined(_WIN64)
   //windows is special, support 64-bit windows
   //Not sure about winrt at this point
@@ -56,7 +78,7 @@
     //proper detection 
        #define SYS_LITTLE_ENDIAN
     #elif defined(__mips__) || defined(__mips) || defined(__MIPS__)
-       #define SYS_BIG_ENDIAN 
+       #define SYS_BIG_ENDIAN
     #else
        #warning "Unknown architecture detected..."
     #endif
@@ -64,7 +86,13 @@
 #endif
 
 
-#if defined SYS_LITTLE_ENDIAN
+// The byte-assembling path is chosen for little-endian hosts (where it does the
+// swap) and for any target that cannot do unaligned word/long loads (where it is
+// the only safe way to read these packed, arbitrarily-aligned values). It builds
+// the big-endian value out of individual bytes, so it is correct regardless of
+// the host's own endianness -- SYS_BIG_ENDIAN targets simply prefer the direct
+// load below when they are allowed to.
+#if defined SYS_LITTLE_ENDIAN || defined SYS_NO_UNALIGNED_ACCESS
 //#warning "LITTLE ENDIAN SELECTED"
 inline uint16_t READ_BE_UINT16(const void *ptr) {
 	const uint8_t *b = (const uint8_t *)ptr;

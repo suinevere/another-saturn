@@ -45,6 +45,9 @@ void Video::init() {
 	paletteIdRequested = NO_PALETTE_CHANGE_REQUESTED;
 
 	uint8_t* tmp = (uint8_t *)malloc(4 * VID_PAGE_SIZE);
+	if (tmp == 0) {
+		error("Video::init() out of memory for %d bytes of pages", 4 * VID_PAGE_SIZE);
+	}
 	memset(tmp,0,4 * VID_PAGE_SIZE);
 	
 	for (int i = 0; i < 4; ++i) {

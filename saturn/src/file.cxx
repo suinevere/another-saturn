@@ -16,8 +16,17 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+// zlib is not available on Saturn and is not needed: Another World's data files
+// (MEMLIST.BIN + BANK01..BANK0D) are already in the game's own packed format,
+// and nothing in this engine opens a gzipped file unless the caller asks for
+// one. USE_ZLIB compiles the gzip File_impl back in for host builds.
+#ifdef USE_ZLIB
 #include "zlib.h"
+#endif
 #include "file.h"
+#ifdef __sh__
+#include "saturn_cdfile.h"
+#endif
 
 
 struct File_impl {
@@ -68,6 +77,58 @@ struct stdFile : File_impl {
 	}
 };
 
+#ifdef __sh__
+/*
+ * The Saturn reader. Game data lives on the disc, so this is the only backend
+ * that does anything on hardware -- stdFile above sits on the always-failing
+ * stubs in saturn_filestub.c.
+ *
+ * Position is tracked here rather than in the CD layer because sat_cd_read is
+ * stateless by design (see saturn_cdfile.h). The engine's pattern is one seek
+ * to an arbitrary byte offset followed by one large read -- Bank::read does
+ * exactly that per resource -- so there is no sequential-streaming state worth
+ * keeping.
+ */
+struct saturnFile : File_impl {
+	SatCdFile *_fp;
+	int32_t _pos;
+	saturnFile() : _fp(0), _pos(0) {}
+	bool open(const char *path, const char *mode) {
+		(void)mode; // the disc is read-only
+		_ioErr = false;
+		_pos = 0;
+		_fp = sat_cd_open(path);
+		return (_fp != NULL);
+	}
+	void close() {
+		if (_fp) {
+			sat_cd_close(_fp);
+			_fp = 0;
+		}
+	}
+	void seek(int32_t off) {
+		_pos = off;
+	}
+	void read(void *ptr, uint32_t size) {
+		if (_fp) {
+			int32_t r = sat_cd_read(_fp, _pos, ptr, (int32_t)size);
+			if (r < 0 || (uint32_t)r != size) {
+				_ioErr = true;
+			}
+			if (r > 0) {
+				_pos += r;
+			}
+		}
+	}
+	// Nothing writes to a CD. Saves belong in backup RAM and are not wired up.
+	void write(void *ptr, uint32_t size) {
+		(void)ptr; (void)size;
+		_ioErr = true;
+	}
+};
+#endif /* __sh__ */
+
+#ifdef USE_ZLIB
 struct zlibFile : File_impl {
 	gzFile _fp;
 	zlibFile() : _fp(0) {}
@@ -104,13 +165,26 @@ struct zlibFile : File_impl {
 		}
 	}
 };
+#endif /* USE_ZLIB */
 
 File::File(bool gzipped) {
+#if defined(__sh__)
+	// On Saturn every file comes off the disc; there is no host filesystem and
+	// no gzip. A caller asking for gzip still gets the CD reader rather than a
+	// null _impl, so a mismatch surfaces as a failed open at the call site
+	// instead of a null dereference here.
+	(void)gzipped;
+	_impl = new saturnFile;
+#elif defined(USE_ZLIB)
 	if (gzipped) {
 		_impl = new zlibFile;
 	} else {
 		_impl = new stdFile;
 	}
+#else
+	(void)gzipped;
+	_impl = new stdFile;
+#endif
 }
 
 File::~File() {
