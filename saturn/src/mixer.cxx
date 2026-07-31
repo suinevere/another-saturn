@@ -19,35 +19,16 @@
 #include "mixer.h"
 #include "serializer.h"
 #include "sys.h"
+#include "saturn_scsp.h"
 
-
-// TEMPORARY. Counts samples that actually hit the clamp. The mixer sums four
-// channels into 8 bits, so a busy passage can saturate, and clipping sounds like
-// sustained crackle -- indistinguishable by ear from the ring running dry, but
-// needing the opposite fix. A large number here means level, not starvation.
-extern "C" { uint32_t g_mixClips = 0; }
-
-static int8_t addclamp(int a, int b) {
-	int add = a + b;
-	if (add < -128) {
-		add = -128;
-		g_mixClips++;
-	}
-	else if (add > 127) {
-		add = 127;
-		g_mixClips++;
-	}
-	return (int8_t)add;
-}
-
-Mixer::Mixer(System *stub) 
+Mixer::Mixer(System *stub)
 	: sys(stub) {
 }
 
 void Mixer::init() {
 	memset(_channels, 0, sizeof(_channels));
 	_mutex = sys->createMutex();
-	sys->startAudio(Mixer::mixCallback, this);
+	sys->startAudio(0, this);
 }
 
 void Mixer::free() {
@@ -56,135 +37,57 @@ void Mixer::free() {
 	sys->destroyMutex(_mutex);
 }
 
+// The mutexes are gone from these methods, and that is a consequence rather
+// than an oversight. They were needed when Mixer::mix ran from the vblank
+// interrupt to keep the ring fed; with the SCSP mixing there is no interrupt
+// and no second context, so the System mutex no-ops are correct again. The
+// field ordering in playChannel -- active last -- is left as it was: it costs
+// nothing and the reason it was needed is worth keeping on the record.
+/*----------------------
+ | playChannel
+ | Description: Hands a sample to an SCSP slot.
+ |
+ |   The MixerChannel fields are still written even though nothing reads them
+ |   for playback: Mixer::saveOrLoad serialises them and the save format must
+ |   not move. chunkPos and chunkInc are inert -- the hardware keeps its own
+ |   position and derives pitch from freq directly.
+ | Author: suinevere
+ ----------------------*/
 void Mixer::playChannel(uint8_t channel, const MixerChunk *mc, uint16_t freq, uint8_t volume) {
 	debug(DBG_SND, "Mixer::playChannel(%d, %d, %d)", channel, freq, volume);
 	assert(channel < AUDIO_NUM_CHANNELS);
 
-	// The mutex is acquired in the constructor
-	MutexStack(sys, _mutex);
 	MixerChannel *ch = &_channels[channel];
-	// active is set LAST, and that ordering matters on Saturn: mix() runs from
-	// the vblank interrupt, so it can land in the middle of this function. A
-	// channel becomes visible to the mixer only once every field describing it
-	// is already in place. Setting active first -- as this did -- left a window
-	// where the mixer would play the previous sound's chunk with this one's
-	// state.
 	ch->volume = volume;
 	ch->chunk = *mc;
 	ch->chunkPos = 0;
-	ch->chunkInc = (freq << 8) / sys->getOutputSampleRate();
+	ch->chunkInc = 0;
 	ch->active = true;
 
-	//At the end of the scope the MutexStack destructor is called and the mutex is released. 
+	sat_scsp_play(channel, mc->data, mc->len, mc->loopPos, mc->loopLen,
+	              freq, volume);
 }
 
 void Mixer::stopChannel(uint8_t channel) {
 	debug(DBG_SND, "Mixer::stopChannel(%d)", channel);
 	assert(channel < AUDIO_NUM_CHANNELS);
-	MutexStack(sys, _mutex);	
 	_channels[channel].active = false;
+	sat_scsp_stop(channel);
 }
 
 void Mixer::setChannelVolume(uint8_t channel, uint8_t volume) {
 	debug(DBG_SND, "Mixer::setChannelVolume(%d, %d)", channel, volume);
 	assert(channel < AUDIO_NUM_CHANNELS);
-	MutexStack(sys, _mutex);
 	_channels[channel].volume = volume;
+	sat_scsp_set_volume(channel, volume);
 }
 
 void Mixer::stopAll() {
 	debug(DBG_SND, "Mixer::stopAll()");
-	MutexStack(sys, _mutex);
 	for (uint8_t i = 0; i < AUDIO_NUM_CHANNELS; ++i) {
-		_channels[i].active = false;		
+		_channels[i].active = false;
 	}
-}
-
-// This is SDL callback. Called in order to populate the buf with len bytes.  
-// The mixer iterates through all active channels and combine all sounds.
-
-// Since there is no way to know when SDL will ask for a buffer fill, we need
-// to synchronize with a mutex so the channels remain stable during the execution
-// of this method.
-void Mixer::mix(int8_t *buf, int len) {
-	int8_t *pBuf;
-
-	MutexStack(sys, _mutex);
-
-	//Clear the buffer since nothing garanty we are receiving clean memory.
-	memset(buf, 0, len);
-
-	for (uint8_t i = 0; i < AUDIO_NUM_CHANNELS; ++i) {
-		MixerChannel *ch = &_channels[i];
-		if (!ch->active) 
-			continue;
-
-		pBuf = buf;
-		for (int j = 0; j < len; ++j, ++pBuf) {
-
-			uint16_t p1, p2;
-			uint16_t ilc = (ch->chunkPos & 0xFF);
-			p1 = ch->chunkPos >> 8;
-			ch->chunkPos += ch->chunkInc;
-
-			// Both end tests are >= rather than ==, which they were. p1 advances
-			// by chunkInc >> 8 per output sample, so it steps over the exact end
-			// value for any note whose frequency exceeds the output rate -- and
-			// then neither test ever fires and playback runs off the end of the
-			// sample through whatever follows it in the resource block. At 32000
-			// that needs a 32 kHz note and does not happen in practice, but it
-			// did at the original 11025, and >= costs nothing.
-			if (ch->chunk.loopLen != 0) {
-				if (p1 >= ch->chunk.loopPos + ch->chunk.loopLen - 1) {
-					debug(DBG_SND, "Looping sample on channel %d", i);
-					// chunkPos is 16.8 fixed point -- p1 is chunkPos >> 8 --
-					// while loopPos is a plain sample index, so it has to be
-					// shifted up to mean the same thing. Assigning it directly
-					// set the position 256 times too small, and playback
-					// restarted near the beginning of the sample instead of at
-					// the loop point, grinding through the wrong region until it
-					// reached the end test again.
-					//
-					// It only bites samples that loop, and it is invisible when
-					// loopPos is 0 -- which is exactly the case sfxplayer.cxx:157
-					// sets for unlooped samples. Hence scratchiness on sustained
-					// notes of some instruments and nothing else.
-					ch->chunkPos = (uint32_t)ch->chunk.loopPos << 8;
-					p2 = ch->chunk.loopPos;
-				} else {
-					p2 = p1 + 1;
-				}
-			} else {
-				if (p1 >= ch->chunk.len - 1) {
-					debug(DBG_SND, "Stopping sample on channel %d", i);
-					ch->active = false;
-					break;
-				} else {
-					p2 = p1 + 1;
-				}
-			}
-			// interpolate
-			int8_t b1 = *(int8_t *)(ch->chunk.data + p1);
-			int8_t b2 = *(int8_t *)(ch->chunk.data + p2);
-			int8_t b = (int8_t)((b1 * (0xFF - ilc) + b2 * ilc) >> 8);
-
-			// set volume and clamp
-			*pBuf = addclamp(*pBuf, (int)b * ch->volume / 0x40);  //0x40=64
-		}
-		
-	}
-
-	// Convert signed 8-bit PCM to unsigned 8-bit PCM. The
-	// current version of SDL hangs when using signed 8-bit
-	// PCM in combination with the PulseAudio driver.
-	pBuf = buf;
-	for (int j = 0; j < len; ++j, ++pBuf) {
-		*(uint8_t *)pBuf = (*pBuf + 128);
-	}
-}
-
-void Mixer::mixCallback(void *param, uint8_t *buf, int len) {
-	((Mixer *)param)->mix((int8_t *)buf, len);
+	sat_scsp_stop_all();
 }
 
 void Mixer::saveOrLoad(Serializer &ser) {
@@ -204,5 +107,18 @@ void Mixer::saveOrLoad(Serializer &ser) {
 		};
 		ser.saveOrLoadEntries(entries);
 	}
+
+	// Load only. Whatever the channels were doing when the state was written,
+	// the hardware is not doing it now. SfxPlayer serialises its own position
+	// and re-issues note-ons within a tick or two; a half-finished sound effect
+	// is better dropped than resumed from a position the SCSP cannot be told.
+	// On save the four channels are still playing exactly what the player is
+	// hearing -- stopping them here would silence a sustained note for real
+	// until the sequencer's next note-on, for a quick-save that is supposed to
+	// be transparent.
+	if (ser._mode == Serializer::SM_LOAD) {
+		sat_scsp_stop_all();
+	}
+
 	sys->unlockMutex(_mutex);
 };

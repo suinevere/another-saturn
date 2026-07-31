@@ -94,14 +94,19 @@ bool Bank::unpack() {
 	_unpCtx.chk = READ_BE_UINT32(_iBuf); _iBuf -= 4;
 	_unpCtx.crc ^= _unpCtx.chk;
 
-	// A decompression is the longest the engine ever goes without reaching the
-	// per-frame audio pump, so without this the PCM ring drains and the music
-	// gaps during loading.
+	// A decompression is the longest the engine ever goes without reaching
+	// sat_audio_update, so without this pump the music sequencer stalls and
+	// falls behind during loading -- audibly, since a part change is exactly
+	// when a big resource gets decoded.
 	//
-	// This was removed once, on the theory that Mixer::mix reads sample data out
-	// of the very block being rewritten here. That theory was wrong -- the noise
-	// blamed on it was a signed/unsigned mismatch on the way to the driver, and
-	// it was there with or without this pump. The reentrancy is in fact safe:
+	// This was removed once, on the theory that the SCSP reads sample data out
+	// of the very block being rewritten here. That theory does not hold: the
+	// SCSP never reads work RAM at all -- it plays out of its own sound RAM,
+	// and a sample only lands there via sat_scsp_play's upload, which happens
+	// once, up front, when the sequencer starts the note. Nothing here can
+	// race that upload. The real constraint is narrower: don't let the
+	// sequencer start a NEW note out of a resource unpack() has only
+	// half-written, which is safe because:
 	//
 	//   - Loads append. resource.cxx:195,216 place each resource at
 	//     _scriptCurPtr and then advance it, so a load never lands on a sound
@@ -112,10 +117,12 @@ bool Bank::unpack() {
 	//   - unpack itself writes only within its own resource, backwards from
 	//     _startBuf + datasize - 1.
 	//
-	// sat_audio_update, so SfxPlayer's timers run too. Feeding the ring alone is
-	// not enough: with the sequencer stopped the channels play out their current
-	// samples and nothing starts new ones, so a load came out as silence -- no
-	// popping, because the ring was full of perfectly valid nothing.
+	// What calling sat_audio_update here actually buys is keeping SfxPlayer's
+	// timers advancing: a note already sounding on the SCSP needs no feeding
+	// and plays on regardless -- there is no ring to run dry -- but the
+	// sequencer itself stops queuing new notes the moment nothing pumps its
+	// timer, so without this call the music falls silent for the length of the
+	// decode.
 	//
 	// Running the sequencer here is safe. It reads a resource only through
 	// me->bufPtr and only when me->state is MEMENTRY_STATE_LOADED

@@ -89,17 +89,15 @@ public:
 /*----------------------
  | onVblank
  | Description: Advances the frame counter. Registered with SRL::Core::OnVblank.
+ |
+ |   It used to clock the PCM stream driver and refill the audio ring as well.
+ |   Neither exists now: the SCSP plays from its own memory and needs nothing
+ |   per frame.
  | Author: suinevere
  ----------------------*/
 static void onVblank()
 {
     g_frames++;
-
-    // The PCM driver's clock. This is the only place it may be called from --
-    // see sat_audio_vblank. It does not mix or touch mixer state, so it stays
-    // safe to run from an interrupt while the engine owns those on the main
-    // loop, which is what keeps the System mutexes honest no-ops.
-    sat_audio_vblank();
 }
 
 extern "C" void sat_boot_init(void)
@@ -210,11 +208,10 @@ extern "C" void sat_video_present(const uint8_t *page)
         slDMAWait();
     }
 
-    // The audio pump. It lives here because this is the one call the engine
-    // makes exactly once per displayed frame, which is the cadence the PCM
-    // buffers need refilling at. The consequence is that audio is only as
-    // continuous as the frame rate -- during a CD load the engine does not
-    // reach here and the sound stalls.
+    // The sequencer tick. It is no longer an audio pump -- the SCSP plays from
+    // its own memory whatever the engine is doing -- but SfxPlayer's timers
+    // still advance the music from here, and from the pump points in
+    // Bank::unpack and sat_cd_open that keep them running during loads.
     sat_audio_update();
 
     SRL::Core::Synchronize();

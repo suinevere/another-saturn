@@ -117,6 +117,21 @@ as carrying a field in any source consulted).
 
 ## FNS sign resolution
 
+> **Confirmed on hardware, 2026-07-31.** The bring-up self-test in
+> `saturn_scsp.cxx` played a 64-sample square wave through slot 0 at three pitch
+> words and the result was heard as **base → octave down → fifth up**:
+>
+> | Pitch word | OCT | FNS | Heard | Confirms |
+> |---|---|---|---|---|
+> | `0x0000` | 0 | 0 | ~689 Hz | Base rate, `LSA`/`LEA`, sound RAM writes, 68000 stand-down |
+> | `0x7800` | −1 | 0 | one octave **down** | `OCT` is signed and its sign runs as documented |
+> | `0x0200` | 0 | 512 | a fifth **up** | `FNS` is unsigned and scales **upward** |
+>
+> Tone 3 rising rather than falling is the decisive observation: under a signed
+> reading `0x0200` would be −512 and the tone would have dropped an octave,
+> matching tone 2. It did not. The documentary conclusion below is therefore
+> confirmed by measurement, not only by citation.
+
 **Conclusion: FNS is unsigned (0–1023).** The playback-rate model is:
 
 ```

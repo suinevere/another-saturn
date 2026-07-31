@@ -23,6 +23,7 @@
 #include "video.h"
 #include "util.h"
 #include "parts.h"
+#include "saturn_scsp.h"
 
 Resource::Resource(Video *vid, const char *dataDir) 
 	: video(vid), _dataDir(dataDir), currentPartId(0),requestedNextPart(0) {
@@ -231,6 +232,11 @@ void Resource::invalidateRes() {
 		}
 		++me;
 	}
+	// The SCSP's sample cache is keyed on the addresses this function is about
+	// to hand back out. Without this, a new part plays the previous part's
+	// audio -- and only sometimes, only after a transition, which is a
+	// miserable thing to find later.
+	sat_scsp_flush_samples();
 	_scriptCurPtr = _scriptBakPtr;
 }
 
@@ -241,6 +247,9 @@ void Resource::invalidateAll() {
 		me->state = MEMENTRY_STATE_NOT_NEEDED;
 		++me;
 	}
+	// Same reason as invalidateRes: the sample cache is keyed on addresses
+	// this rewinds.
+	sat_scsp_flush_samples();
 	_scriptCurPtr = _memPtrStart;
 }
 
@@ -408,5 +417,12 @@ void Resource::saveOrLoad(Serializer &ser) {
 			me->state = MEMENTRY_STATE_LOADED;
 			q += me->size;
 		}
-	}	
+		// The banks just re-read above land back at _memPtrStart onward -- the
+		// same addresses the SCSP sample cache is keyed on. A quick-load crosses
+		// parts (e.g. playing part 5, loading a part-2 save) neither through
+		// invalidateRes nor invalidateAll, so nothing else on this path would
+		// flush it: a part-2 instrument could land on an address whose cache
+		// entry still describes part 5's sample, HIT, and the wrong audio plays.
+		sat_scsp_flush_samples();
+	}
 }

@@ -20,7 +20,7 @@ saturn/BuildDrop/
 **/*.iso
 **/*.cue
 **/*.bin.tmp
-# 0.bin is the linked program objcopy'd into the disc image on every build.
+    # 0.bin is the linked program objcopy'd into the disc image on every build.
 # It is committed as part of the CD skeleton, so ignore only the build dir above.
 
 # --- Cross-compiler and iso2raw (fetched into the SDK submodule, never committed)
@@ -29,6 +29,13 @@ SaturnRingLib/tools/bin/
 
 # --- Host/IDE build dirs -----------------------------------------------------
 cmake-build-*/
+
+# --- Host unit-test binary ---------------------------------------------------
+# saturn/tests/run_tests.sh builds this with the host g++ (not the SH-2 cross
+# compiler) so the pure SCSP voice maths can be tested off-target. A build
+# output, not source. Both spellings: MSYS g++ emits .exe on Windows.
+saturn/tests/run_tests
+saturn/tests/run_tests.exe
 
 # --- Non-free game data ------------------------------------------------------
 # Another World's original PC DOS data files. Required to run, never committed.
@@ -40,3 +47,10 @@ saturn/cd/data/BANK*
 saturn/cd/data/bank*
 saturn/cd/data/MEMLIST.BIN
 saturn/cd/data/memlist.bin
+
+# SGL sound driver files the makefile copies in from the SGL module directory
+# whenever SRL_USE_SGL_SOUND_DRIVER = 1. Build output, not source.
+saturn/cd/data/0.bin
+saturn/cd/data/BOOTSND.MAP
+saturn/cd/data/SDDRVS.DAT
+saturn/cd/data/SDDRVS.TSK

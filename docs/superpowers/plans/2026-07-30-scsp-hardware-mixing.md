@@ -101,19 +101,19 @@ Common block:
 
 - [ ] **Step 2: Resolve the FNS sign question in the document**
 
-This is the important one. `calcPitch()` (`saturn/src/system/saturn_audio.cxx:365`) produces a **negative** FNS for every rate below 44100 Hz. Compiled and swept over the engine's full range (874–65082 Hz, from Amiga periods `0x37`–`0xFFF`), it yields FNS in `[-512, 487]` and OCT in `[-5, 0]`.
+> **RESOLVED — Task 1 complete, commit `f5c1e0e`.** FNS is **unsigned**, 0–1023, paired with a signed OCT:
+> ```
+> playback_rate = (1 + FNS/1024) * 2^OCT * 44100
+> ```
+> Established from the official manual's worked example and Mednafen's phase-accumulator arithmetic; no source supports a signed reading. Recorded with citations in `docs/scsp-registers.md`.
+>
+> **This exposed a real bug.** `calcPitch()` (`saturn_audio.cxx:365`) produces a *negative* FNS for every rate below 44100, which the unsigned field cannot represent. The cause: it reimplements SGL's `PCM_CALC_OCT` (`srl_sound.hpp:375`) with a bare `floor(log2(n))`, but SGL indexes `LogTable` (`srl_sound.hpp:339`), which is `floor(log2(n)) + 1`. It is one octave low everywhere below 44100. It shipped unnoticed because it only runs on the `MODE_BUFFERS` fallback path that `saturn_audio.cxx:113` says never executes.
+>
+> Task 2's `scsp_voice_pitch` is therefore a **corrected rewrite, not a port**, and its expected test values have been regenerated against the unsigned model.
 
-Those values are only correct under:
+The step below is retained as the record of what was asked; the answer above is authoritative.
 
-```
-playback_rate = (1 + FNS_signed / 1024) * 2^OCT * 44100
-```
-
-Under that model the worst-case error across the range is 0.13%. Under an unsigned-FNS model, `calcPitch(22050)` returns OCT=0, FNS=0x200 and would play at 66150 Hz — a fifth sharp instead of an octave flat.
-
-Record in the document which model your reference supports. If the reference is ambiguous, write that down; Task 5 settles it empirically and you will come back and fill this in.
-
-Note that `calcPitch` is currently used **only** on the `MODE_BUFFERS` fallback path, which `saturn_audio.cxx:113` says normally never runs. It is effectively unverified in the shipping build. Do not assume it is correct because the game currently sounds right.
+This was the important one. `calcPitch()` produces a **negative** FNS for every rate below 44100 Hz. Determine from an external reference whether the SCSP's FNS field is signed or unsigned, and record which model the reference supports along with the evidence.
 
 - [ ] **Step 3: Commit**
 
@@ -201,42 +201,56 @@ static int g_fail = 0;
         }                                                                     \
     } while (0)
 
-/* OCT is 4-bit signed, FNS is 10-bit signed. Unpack for readability. */
+/* OCT is 4-bit signed; FNS is 10-bit UNSIGNED. Unpack for readability. */
 static int pitchOct(uint16_t w) { int o = (w >> 11) & 0xF; return (o & 0x8) ? o - 16 : o; }
-static int pitchFns(uint16_t w) { int f = w & 0x3FF;       return (f & 0x200) ? f - 1024 : f; }
+static int pitchFns(uint16_t w) { return w & 0x3FF; }
 
 static void test_pitch_known_rates(void)
 {
     /* 44100 is the SCSP's own rate: no shift, no fraction. */
     CHECK_EQ(scsp_voice_pitch(44100), 0x0000);
 
-    /* Exact powers-of-two below it land on FNS = -512, OCT one lower each time. */
-    CHECK_EQ(scsp_voice_pitch(22050), 0x0200);
-    CHECK_EQ(scsp_voice_pitch(11025), 0x7A00);
-    CHECK_EQ(scsp_voice_pitch(5512),  0x7200);
+    /* Exact halvings land on FNS = 0 with OCT one lower each time. Getting
+       FNS = 0 here is the whole point: the old calcPitch produced -512 for
+       these, which is not representable in an unsigned field. */
+    CHECK_EQ(scsp_voice_pitch(22050), 0x7800);   /* OCT -1, FNS 0 */
+    CHECK_EQ(scsp_voice_pitch(11025), 0x7000);   /* OCT -2, FNS 0 */
+    CHECK_EQ(scsp_voice_pitch(5512),  0x6800);   /* OCT -3, FNS 0 */
 
-    /* Three-quarter rate: FNS = -256, same octave. */
-    CHECK_EQ(scsp_voice_pitch(33075), 0x0300);
-    CHECK_EQ(scsp_voice_pitch(16537), 0x7B00);
+    /* Halfway between two octaves: FNS 512, the fraction at its midpoint. */
+    CHECK_EQ(scsp_voice_pitch(33075), 0x7A00);   /* OCT -1, FNS 512 */
 
-    /* Above 44100 the fraction goes positive. 65082 Hz is the engine's
-       highest note: Amiga period 0x37, 7159092 / (0x37 * 2). */
-    CHECK_EQ(scsp_voice_pitch(65082), 0x01E7);
+    /* Just under the top of an octave: FNS near full scale. */
+    CHECK_EQ(scsp_voice_pitch(16537), 0x71FF);   /* OCT -2, FNS 511 */
+
+    /* The engine's highest note: Amiga period 0x37, 7159092 / (0x37 * 2). */
+    CHECK_EQ(scsp_voice_pitch(65082), 0x01E7);   /* OCT  0, FNS 487 */
 
     /* The engine's lowest note: period 0xFFF. */
-    CHECK_EQ(scsp_voice_pitch(874), 0x5A8A);
+    CHECK_EQ(scsp_voice_pitch(874), 0x5112);     /* OCT -6, FNS 274 */
+}
+
+static void test_pitch_msk10_overflow(void)
+{
+    /* Regression test for the one rate in the engine's entire range where the
+       raw formula overflows: at 11024 Hz the fraction computes to exactly
+       1024, and masking it to 10 bits turns it into 0 -- dropping a whole
+       octave, a 50% pitch error. SGL's own PCM_MSK10 macro has this hole.
+       The guard decrements the octave and recomputes instead. */
+    CHECK_EQ(scsp_voice_pitch(11024), 0x7000);
 }
 
 static void test_pitch_fields_stay_in_range(void)
 {
     /* Sweep the whole range the engine can ask for and prove neither field
-       overflows its bits. OCT is 4-bit signed and FNS 10-bit signed, so a
-       value outside these ranges silently aliases to a wrong pitch. */
+       overflows its bits. FNS is UNSIGNED here: a negative value means the
+       octave came out too low, which is exactly the bug the old calcPitch
+       had, and it aliases to a wildly wrong pitch. */
     for (uint32_t rate = 874; rate <= 65082; rate++) {
         uint16_t w = scsp_voice_pitch(rate);
         int oct = pitchOct(w);
         int fns = pitchFns(w);
-        if (oct < -8 || oct > 7 || fns < -512 || fns > 511) {
+        if (oct < -8 || oct > 7 || fns < 0 || fns > 1023) {
             printf("FAIL rate %u -> 0x%04X OCT=%d FNS=%d out of range\n",
                    (unsigned)rate, w, oct, fns);
             g_fail++;
@@ -282,6 +296,7 @@ static void test_tl_table(void)
 int main(void)
 {
     test_pitch_known_rates();
+    test_pitch_msk10_overflow();
     test_pitch_fields_stay_in_range();
     test_pitch_zero_is_safe();
     test_tl_table();
@@ -336,13 +351,19 @@ extern "C" {
  | Description: Packs a playback rate into the SCSP's OCT/FNS word, ready for
  |   slot register +0x10.
  |
- |   The model this assumes is
+ |   The model, verified in docs/scsp-registers.md, is
  |       rate = (1 + FNS/1024) * 2^OCT * 44100
- |   with FNS read as SIGNED 10-bit. Every rate below 44100 produces a negative
- |   FNS, so under an unsigned reading this function is wrong by up to a fifth
- |   -- 22050 would play at 66150. See docs/scsp-registers.md.
+ |   with FNS UNSIGNED 0..1023 and OCT signed -8..+7.
  |
- |   Worst-case error across the engine's range (874..65082 Hz) is 0.13%.
+ |   This is NOT a straight port of calcPitch in saturn_audio.cxx. That function
+ |   reimplemented SGL's PCM_CALC_OCT (srl_sound.hpp:375) with a plain
+ |   floor(log2(n)), but SGL indexes LogTable (srl_sound.hpp:339), which is
+ |   floor(log2(n)) + 1. The missing octave made every rate below 44100 come out
+ |   an octave low, expressed as a negative FNS -- which the unsigned field
+ |   cannot represent at all. It shipped unnoticed because calcPitch only runs
+ |   on the MODE_BUFFERS fallback path that never executes.
+ |
+ |   Worst-case error across the engine's range (874..65082 Hz) is 0.097%.
  | Author: suinevere
  | Params: sampleRate -- desired playback rate in Hz. 0 returns 0.
  ----------------------*/
@@ -389,38 +410,70 @@ Create `saturn/src/system/scsp_voice.cxx`:
  ----------------------*/
 #define SCSP_BASE_RATE 44100
 
+/*----------------------
+ | sglLog
+ | Description: SGL's LogTable (srl_sound.hpp:339) as a computation.
+ |
+ |   The table reads 0,1,2,2,3,3,3,3,4... -- that is floor(log2(n)) + 1 for
+ |   n >= 1, and 0 for n == 0, which is the same as counting significant bits.
+ |   Recomputed rather than duplicated because the table is a private member of
+ |   SRL::Sound::Pcm and unreachable from here.
+ |
+ |   The +1 is the whole bug in the old calcPitch, which used a bare
+ |   floor(log2(n)) and so came out an octave low everywhere below 44100.
+ | Author: suinevere
+ ----------------------*/
+static int32_t sglLog(uint32_t n)
+{
+    int32_t bits = 0;
+
+    while (n != 0)
+    {
+        bits++;
+        n >>= 1;
+    }
+
+    return bits;
+}
+
 uint16_t scsp_voice_pitch(uint32_t sampleRate)
 {
+    int32_t octave;
+    int32_t shiftFreq;
+    int32_t fns;
+
     if (sampleRate == 0)
     {
         return 0;
     }
 
-    /* How many halvings of the base rate it takes to get at or below the
-       requested rate. The +1 keeps the division from returning a ratio that
-       rounds the octave up at exact boundaries.
+    /* How many halvings of the base rate it takes to reach the requested one.
+       The +1 matches SGL's macro and keeps the division off the boundary. */
+    octave    = sglLog((uint32_t)SCSP_BASE_RATE / (sampleRate + 1u));
+    shiftFreq = (int32_t)SCSP_BASE_RATE >> octave;
+    fns       = (((int32_t)sampleRate - shiftFreq) << 10) / shiftFreq;
 
-       This reproduces SGL's PCM_CALC_* macros rather than calling them: those
-       index SRL's LogTable, a private member of SRL::Sound::Pcm. The table is
-       just floor(log2(n)), cheaper to recompute than to duplicate. */
-    const uint32_t ratio = (uint32_t)SCSP_BASE_RATE / (sampleRate + 1u);
-
-    int32_t octave = 0;
-    while ((ratio >> (octave + 1)) != 0)
+    /* fns hits exactly 1024 at 11024 Hz, and masking that to 10 bits turns it
+       into 0 -- an octave down, a 50% pitch error. SGL's PCM_MSK10 has this
+       hole; take the octave the fraction is really asking for instead. It is
+       one rate in the engine's whole range, and it is a semitone off the top
+       of a sample, so it would have been heard rather than seen. */
+    if (fns > 1023 && octave > 0)
     {
-        octave++;
+        octave--;
+        shiftFreq = (int32_t)SCSP_BASE_RATE >> octave;
+        fns       = (((int32_t)sampleRate - shiftFreq) << 10) / shiftFreq;
     }
 
-    const int32_t shiftFreq = (int32_t)SCSP_BASE_RATE >> octave;
+    if (fns < 0)
+    {
+        fns = 0;
+    }
 
-    /* Signed, and always negative below the shifted rate. C's division
-       truncates toward zero, which is what keeps this at or above -512: the
-       octave search guarantees sampleRate >= shiftFreq / 2, and truncation
-       never rounds the result further from zero. Do not "fix" this into a
-       floored division -- that would produce -513 at exact boundaries and
-       alias to +511, playing the note a fifth sharp instead of an octave
-       flat. */
-    const int32_t fns = (((int32_t)sampleRate - shiftFreq) << 10) / shiftFreq;
+    if (fns > 1023)
+    {
+        fns = 1023;
+    }
 
     /* OCT in the register is the negation: octave counts halvings, OCT
        expresses them as a signed power of two. */
@@ -1092,7 +1145,7 @@ caller cannot forget to silence the slots before their memory is reused."
 
 ### Task 5: Hardware layer and a tone that settles the FNS question
 
-This is the bring-up task. It puts a synthesised square wave through real slots with the engine entirely out of the picture, which isolates the register map, the 68000 stand-down and sound RAM writes from every other unknown. It also runs the experiment that decides whether FNS is signed.
+This is the bring-up task. It puts a synthesised square wave through real slots with the engine entirely out of the picture, which isolates the register map, the 68000 stand-down and sound RAM writes from every other unknown. Its three tones also confirm the OCT and FNS fields on hardware, independently of each other.
 
 **Files:**
 - Create: `saturn/src/system/saturn_scsp.h`
@@ -1481,28 +1534,29 @@ void sat_scsp_play(uint8_t channel, const uint8_t *data, uint16_t len,
 
 /*----------------------
  | sat_scsp_self_test
- | Description: TEMPORARY. See the header. Three tones, each held for a second:
+ | Description: TEMPORARY. See the header. Three tones, each held for a second,
+ |   exercising the two pitch fields independently:
  |
- |     1. pitch word 0x0000 -- a 64-sample square played at 44100, so 689 Hz
- |     2. pitch word 0x7800 -- OCT -1, FNS 0, so exactly one octave down
- |     3. pitch word 0x0200 -- OCT 0, FNS 0x200
+ |     1. 0x0000 -- OCT 0, FNS 0. A 64-sample square at 44100, so 689 Hz.
+ |     2. 0x7800 -- OCT -1, FNS 0. Exactly one octave down, 344.5 Hz.
+ |     3. 0x0200 -- OCT 0, FNS 512. Half the fraction, so 1.5x: a fifth up,
+ |                  1033.6 Hz.
  |
- |   The third is the experiment. If FNS is SIGNED, 0x200 is -512 and the tone
- |   drops an octave, matching tone 2. If it is UNSIGNED, 0x200 is +512 and the
- |   tone rises a fifth instead. Every rate scsp_voice_pitch produces below
- |   44100 is negative, so the signed reading is the one the pitch maths needs;
- |   an unsigned SCSP would mean 22050 plays at 66150.
+ |   Tone 2 confirms OCT is signed and that its sign runs the way the register
+ |   map says. Tone 3 confirms FNS is unsigned and scales upward -- if it drops
+ |   an octave instead, FNS is signed and both docs/scsp-registers.md and
+ |   scsp_voice_pitch are wrong.
  |
- |   Tone 3 sounding the same as tone 2 confirms it. Tone 3 sounding higher
- |   than tone 1 refutes it, and scsp_voice_pitch has to be rewritten to bias
- |   the octave down and keep FNS positive.
+ |   Anything other than base / octave-down / fifth-up means stop and re-check
+ |   the register map before going further.
  | Author: suinevere
  ----------------------*/
 void sat_scsp_self_test(void)
 {
     static const uint16_t kPitches[3] = { 0x0000, 0x7800, 0x0200 };
-    static const char    *kLabels[3]  = { "689 Hz base", "one octave down",
-                                          "FNS 0x200: down = signed" };
+    static const char    *kLabels[3]  = { "689 Hz base",
+                                          "OCT -1: octave DOWN",
+                                          "FNS 512: fifth UP" };
 
     uint8_t  square[64];
     uint32_t i;
@@ -1604,8 +1658,9 @@ Three one-second tones at boot, with the on-screen label saying which is which. 
 |---|---|---|
 | No sound at all | Register map wrong, or `slSoundOffWait` silences the SCSP | Re-check Task 1's map. Then try commenting out `slSoundOffWait()` and rebuild — if sound appears, take the spec's documented fallback and move the slots instead |
 | Tone 1 is not roughly 689 Hz | `SCSP_BASE_RATE` or the loop registers are wrong | Re-check `LSA`/`LEA` and the base rate in Task 1's map |
-| Tone 3 sounds like tone 2 (an octave below tone 1) | **FNS is signed.** `scsp_voice_pitch` is correct as written | Record this in `docs/scsp-registers.md` and continue |
-| Tone 3 sounds *higher* than tone 1 (a fifth up) | **FNS is unsigned.** `scsp_voice_pitch` is wrong for every rate below 44100 | Stop. Rewrite `scsp_voice_pitch` to bias the octave down one and keep FNS positive, update every expected value in `test_pitch_known_rates`, and re-run Task 2's tests before continuing |
+| Tone 2 is not exactly one octave below tone 1 | The `OCT` field or its sign is wrong | Re-check `OCT` in `docs/scsp-registers.md`. `0x7800` must mean OCT = −1 |
+| Tone 3 sounds *higher* than tone 1, by a fifth | **Expected.** FNS is unsigned and scales upward, as documented | Continue |
+| Tone 3 sounds *lower* than tone 1 (an octave down, like tone 2) | FNS is signed after all, and both `docs/scsp-registers.md` and `scsp_voice_pitch` are wrong | Stop. This contradicts the manual and Mednafen; re-open Task 1's sources before touching code, then rewrite `scsp_voice_pitch` and every expected value in `test_pitch_known_rates` |
 
 - [ ] **Step 6: Run on real hardware and confirm the same three tones**
 
@@ -1620,16 +1675,16 @@ Update `docs/scsp-registers.md` with the FNS result and how it was established. 
 ```bash
 git add saturn/src/system/saturn_scsp.h saturn/src/system/saturn_scsp.cxx \
         saturn/src/system/saturn_audio.cxx docs/scsp-registers.md
-git commit -m "Drive SCSP slots directly, and settle the FNS sign by ear
+git commit -m "Drive SCSP slots directly, confirmed by three tones
 
 A square wave through slot 0 with the engine out of the picture, so the
 register map, the sound RAM writes and standing the 68000 down are confirmed
 before anything depends on all three at once.
 
-The third tone is the experiment: pitch word 0x0200 drops an octave if FNS is
-signed and rises a fifth if it is not. Every rate the pitch maths produces
-below 44100 is negative, so this is the assumption the whole thing rests on
-and it is cheaper to hear than to argue about."
+The tones exercise the pitch fields separately: 0x7800 is OCT -1 and must fall
+an octave, 0x0200 is FNS 512 and must rise a fifth. Getting either direction
+wrong on hardware means the register map is wrong, and it is cheaper to hear
+that now than to chase it through a music track later."
 ```
 
 ---
@@ -2085,9 +2140,9 @@ failure modes any more; whether the sample cache is hitting is."
 
 ## Notes for whoever executes this
 
-**The riskiest step is Task 5, and it is deliberately early.** Everything after it assumes the register map is right and FNS is signed. If the tone test refutes either, stop and fix the foundation rather than working around it downstream — a wrong pitch model can be made to sound roughly right by compensating in two places at once, and that is very hard to unpick later.
+**The riskiest step is Task 5, and it is deliberately early.** Everything after it assumes the register map in `docs/scsp-registers.md` is right. If the three tones do not come out base / octave-down / fifth-up, stop and fix the foundation rather than working around it downstream — a wrong pitch model can be made to sound roughly right by compensating in two places at once, and that is very hard to unpick later.
 
-**`calcPitch` has never actually run in anger.** It sits on the `MODE_BUFFERS` fallback path that `saturn_audio.cxx:113` says normally never runs. The game currently sounding correct says nothing about it. This is why Task 2 tests it against computed values and Task 5 checks it against the hardware.
+**`calcPitch` was never merely unverified — it was wrong.** Task 1 established that FNS is unsigned, which exposed the cause: `calcPitch` reimplements SGL's `PCM_CALC_OCT` with a bare `floor(log2(n))`, but SGL indexes `LogTable` (`srl_sound.hpp:339`), which is `floor(log2(n)) + 1`. Every rate below 44100 came out an octave low, expressed as a negative FNS the unsigned field cannot hold. It shipped unnoticed because that function only runs on the `MODE_BUFFERS` fallback path (`saturn_audio.cxx:113`). Task 2's `scsp_voice_pitch` is a corrected rewrite, not a port — do not "restore" the original loop.
 
 **The cache bug is the one that will escape testing.** A stale sample cache produces audio that is present and plausible and wrong, only after a part transition. Task 7 asks you to break it on purpose and confirm you can hear the difference; do that step rather than assuming.
 

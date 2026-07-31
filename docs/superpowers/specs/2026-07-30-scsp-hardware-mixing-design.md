@@ -228,11 +228,34 @@ becomes inert (see "Save states").
 
 ### Pitch
 
-`OCT`/`FNS`, computed by the existing `calcPitch()` in `saturn_audio.cxx`, which
-already converts a sample rate into the SCSP's octave/FNS word. It moves across
-unchanged. `chunkInc` and the pitch role of `getOutputSampleRate()` both
-disappear; `sat_audio_sample_rate()` keeps returning 44100 for any remaining
-caller.
+`OCT`/`FNS`, from the sample rate:
+
+```
+rate = (1 + FNS/1024) * 2^OCT * 44100      FNS unsigned 0..1023, OCT signed -8..+7
+```
+
+**The existing `calcPitch()` in `saturn_audio.cxx:365` is buggy and must not be
+moved across unchanged.** It reimplements SGL's `PCM_CALC_OCT` macro
+(`srl_sound.hpp:375`) but gets the octave wrong: SGL indexes `LogTable`
+(`srl_sound.hpp:339`), which is `floor(log2(n)) + 1` for n≥1, while `calcPitch`'s
+`while` loop computes plain `floor(log2(n))`. The result is one octave too low
+for every rate below 44100, which shows up as a negative FNS — and a negative
+FNS is impossible under the model above.
+
+This went unnoticed because `calcPitch` only ever runs on the `MODE_BUFFERS`
+fallback path, which `saturn_audio.cxx:113` says normally never runs.
+
+The corrected function takes SGL's octave and adds one guard: `fns` reaches
+exactly 1024 at 11024 Hz, and `PCM_MSK10` truncating that to 0 drops an octave.
+SGL's own macro has the same hole. Decrementing the octave and recomputing when
+`fns > 1023` closes it.
+
+Verified by compiling the corrected function and sweeping the engine's entire
+range — 874 to 65082 Hz, from Amiga periods `0xFFF` down to `0x37`: FNS stays in
+`[0, 1023]`, OCT in `[-6, 0]`, worst-case pitch error 0.097%.
+
+`chunkInc` and the pitch role of `getOutputSampleRate()` both disappear;
+`sat_audio_sample_rate()` keeps returning 44100 for any remaining caller.
 
 ### Volume
 
@@ -250,24 +273,38 @@ which is what `sfxplayer.cxx`'s volume-up and volume-down effects need.
 ### Key-on
 
 Set `KYONB` on the slot, then write `KYONEX`, which is a global commit.
-Retriggering a slot that is already sounding means key off, reprogram, key on.
 
-If that clicks or drops notes on real hardware, the documented remedy is two
-slots per engine channel, ping-ponged, with the outgoing note's release covering
-the seam — 8 of 32 slots. Not built up front.
+> **Built, because the trigger condition fired.** Retriggering one slot — key
+> off, reprogram, key on, all within a few microseconds — dropped notes on real
+> hardware. The SCSP services a slot once per sample period, ~22.7 µs at
+> 44.1 kHz, and a key-on arriving while the envelope is still in release is
+> discarded. Heard as notes cut off, worsening with note density, which is why
+> it tracked how busy the music was rather than anything about the cache.
+>
+> Each engine channel therefore owns **two** slots and alternates: channel *c*
+> uses slots *2c* and *2c+1*. A new note always lands on a slot that is already
+> idle, so nothing has to have finished first — the race is removed rather than
+> won. The outgoing slot is keyed off **after** the new one starts, so its
+> release covers the seam instead of leaving a gap.
+>
+> Eight of the SCSP's 32 slots. Nothing competes for them: the 68000 is held in
+> reset and SGL's allocator is not running.
 
-### Register map must be verified first
+This is the remedy this spec originally wrote down and deferred, with "clicks or
+drops notes on retrigger" as the named trigger. Deferring it was right; writing
+it down with a condition attached is what made it cheap to reach for when the
+symptom appeared.
 
-There is no SCSP datasheet in this repository. `sega_snd.h` contributes exactly
-one address, `0x25b0042e`, which lines up with `MCIRE` at common offset `0x2E`
-and so corroborates the register base and the common-block layout. The bit
-positions above are from general knowledge, not from a document in the tree.
+### Register map: verified
 
-**The first implementation step is to check the slot register map against a
-reference** — Mednafen's `scsp.cpp` is the most convenient, and it is already a
-test target. A wrong bit position is the difference between working audio and
-silence, and there is no error reporting to catch it, so it is cheap to verify
-before writing code against it.
+There was no SCSP datasheet in this repository, so the map was checked against
+external references before any code depended on it. The result lives in
+`docs/scsp-registers.md`, with citations.
+
+That verification paid for itself immediately: it established FNS as unsigned,
+which is what exposed the `calcPitch` octave bug above. The original draft of
+this spec asserted FNS was signed — a theory invented to explain the negative
+values the buggy function produced, rather than a property of the hardware.
 
 ## Save states
 
@@ -341,7 +378,8 @@ Written down as documented remedies rather than built:
 - SCSP DSP effects.
 - CDDA.
 - Eager preloading of module samples at `snd_playMusic`.
-- Two slots per engine channel for retrigger.
+- ~~Two slots per engine channel for retrigger.~~ **Built** — see Key-on above.
+  Its trigger condition fired on hardware.
 
 ## Files touched
 

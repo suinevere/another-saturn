@@ -95,8 +95,18 @@ uint32_t SaturnSystem::getTimeStamp() {
 	return sat_time_ms();
 }
 
+/*----------------------
+ | startAudio
+ | Description: The callback argument is ignored: since the SCSP does the
+ |   mixing there is nothing to pull samples from. It stays in the signature
+ |   because sys.h:67 is the engine's own interface and this is the only
+ |   backend that does not need it.
+ | Author: suinevere
+ ----------------------*/
 void SaturnSystem::startAudio(AudioCallback callback, void *param) {
-	sat_audio_start((SatAudioCallback)callback, param);
+	(void)callback;
+	(void)param;
+	sat_audio_start(0, 0);
 }
 
 void SaturnSystem::stopAudio() {
@@ -135,16 +145,18 @@ void SaturnSystem::removeTimer(int timerId) {
  | Description: No-ops, and correct as such rather than merely harmless.
  |
  |   These exist because the SDL backend ran the mixer on its own thread and had
- |   to guard the channel state against the VM. This port has no audio thread:
- |   the mixer is pulled from sat_audio_update, which runs on the main loop like
- |   everything else, so there is no second context to race with. Do not "fix"
- |   these into real locks -- there is nothing to lock, and the reason is
- |   structural, not an oversight.
+ |   to guard the channel state against the VM. This port has no audio thread
+ |   and no mixer running from an interrupt at all any more: Mixer::playChannel
+ |   writes SCSP slot registers directly, on the main loop, and the SCSP then
+ |   plays on its own without anything here servicing it. There is no second
+ |   context to race with. Do not "fix" these into real locks -- there is
+ |   nothing to lock, and the reason is structural, not an oversight.
  |
- |   Note this is exactly what would change if the mix were ever moved into the
- |   vblank ISR to keep audio alive during CD loads: Mixer::playChannel on the
- |   main loop would then race Mixer::mix in the interrupt, and these would have
- |   to become real critical sections.
+ |   Note this is exactly what would change if playback were ever driven from
+ |   the vblank ISR again -- e.g. to reprogram slots more precisely than the
+ |   main loop's timing allows: Mixer::playChannel on the main loop would then
+ |   race that interrupt, and these would have to become real critical
+ |   sections.
  |
  |   createMutex returns a non-NULL token because callers keep and pass it back.
  | Author: suinevere
