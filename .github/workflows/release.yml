@@ -1,0 +1,179 @@
+name: Build & release setup kit
+
+# Tag pushes (v*) build the engine-only disc, package the setup kit, and attach
+# it to a release -- creating the release if one does not exist yet. Manual runs
+# do the same but upload the kit as a workflow artifact instead, so the
+# packaging can be tested without cutting a release.
+#
+# This workflow never touches the game data. The disc it ships boots but has no
+# resources in it; the end user runs update.bat, which downloads their own copy
+# of the original files and folds them in. The complete disc is built only by
+# full-image.yml, and only as a private artifact.
+on:
+  push:
+    # Match both v-prefixed (v1.0.0) and bare semver (1.0.0) tags.
+    tags: ['v*', '[0-9]*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create / upload to releases
+
+env:
+  DISC_NAME: Another World (USA)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with SaturnRingLib submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install host tools
+        # xorriso provides xorrisofs (ISO authoring) for the build, and plain
+        # xorriso for the kit smoke test below. No ffmpeg/sox: this disc has no
+        # CDDA audio track.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xorriso wget unzip zip curl
+
+      # Cache the fetched SH-2 gcc + iso2raw so we don't re-download ~hundreds
+      # of MB every run. Keyed on the tool versions below.
+      - name: Cache SaturnRingLib toolchain
+        id: toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            SaturnRingLib/Compiler
+            SaturnRingLib/tools/bin
+          key: srl-toolchain-gcc14.2.0-iso2raw0.2.2
+
+      - name: Fetch SH-2 toolchain + iso2raw
+        # Only on a cache miss: the fetch scripts prompt interactively if their
+        # target dirs already exist, which would hang CI.
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        working-directory: SaturnRingLib
+        run: |
+          set -e
+          bash tools/scripts/getcompiler.sh 14.2.0
+          bash tools/scripts/getiso2raw.sh v0.2.2
+
+      # Deliberately WITHOUT running data.bat: saturn/cd/data must hold only the
+      # CD skeleton so the shipped ISO carries no game resources.
+      - name: Build engine-only Saturn disc (release)
+        working-directory: saturn
+        run: |
+          set -e
+          export SRL_INSTALL_ROOT=../SaturnRingLib
+          bash ../SaturnRingLib/tools/scripts/make.sh release ../SaturnRingLib/Compiler
+          ls -la BuildDrop
+
+      - name: Assert the disc carries no game data
+        run: |
+          set -e
+          # A leaked bank file would mean redistributing someone else's data.
+          if ls saturn/cd/data/bank* saturn/cd/data/BANK* saturn/cd/data/memlist.bin 2>/dev/null | grep -q .; then
+            echo "ERROR: game data present in the CD skeleton -- refusing to package"; exit 1
+          fi
+          xorriso -indev "saturn/BuildDrop/${DISC_NAME}.iso" -find / 2>/dev/null | tee /tmp/base-listing
+          # `grep ... && { exit 1; }` would trip set -e on the *good* path, when
+          # grep finds nothing and returns 1. Test it as a condition instead.
+          if grep -qi 'BANK' /tmp/base-listing; then
+            echo "ERROR: bank files inside the base ISO"; exit 1
+          fi
+          grep -q '0.BIN' /tmp/base-listing || { echo "ERROR: 0.BIN missing -- disc would not boot"; exit 1; }
+
+      - name: Stage setup kit
+        id: kit
+        run: |
+          set -e
+          # Tag-driven runs use the tag as the release id; manual runs use the SHA.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then VER="${GITHUB_REF_NAME}"; else VER="${GITHUB_SHA::7}"; fi
+
+          STAGE="$RUNNER_TEMP/kit-stage"
+          mkdir -p "$STAGE"
+
+          # Base ISO, in the folder CONFIG.ME's BASE_ISO points at.
+          mkdir -p "$STAGE/${DISC_NAME}"
+          cp "saturn/BuildDrop/${DISC_NAME}.iso" "$STAGE/${DISC_NAME}/${DISC_NAME}.iso"
+
+          # Scripts, shared libs and the bundled xorriso/iso2raw.
+          cp -r tools/assets/bin tools/assets/lib "$STAGE/"
+          cp tools/assets/data.bat tools/assets/update.bat "$STAGE/"
+          cp tools/assets/README-kit.md "$STAGE/README.md"
+
+          # In a source checkout DATA_DIR points back at the CD skeleton; in the
+          # kit there is no checkout, so it becomes a local working dir.
+          sed 's|^DATA_DIR=.*|DATA_DIR=./data|' tools/assets/CONFIG.ME > "$STAGE/CONFIG.ME"
+          grep -q '^DATA_DIR=./data$' "$STAGE/CONFIG.ME"
+          mkdir -p "$STAGE/data"
+
+          chmod +x "$STAGE"/*.bat "$STAGE"/bin/lin/iso2raw "$STAGE"/bin/mac/*/iso2raw
+
+          echo "ver=$VER"       >> "$GITHUB_OUTPUT"
+          echo "stage_dir=$STAGE" >> "$GITHUB_OUTPUT"
+
+      # Prove the kit actually works before shipping it, on a copy so the smoke
+      # test's downloads and outputs never reach the zip. This is the only place
+      # the Linux code path (system xorriso + bin/lin/iso2raw) gets exercised.
+      - name: Smoke-test the kit
+        run: |
+          set -e
+          TEST="$RUNNER_TEMP/kit-test"
+          cp -r "${{ steps.kit.outputs.stage_dir }}" "$TEST"
+          (cd "$TEST" && bash update.bat)
+          out="$TEST/${DISC_NAME} - Complete"
+          test -s "$out/${DISC_NAME}.bin"
+          grep -q "FILE \"${DISC_NAME}.bin\" BINARY" "$out/${DISC_NAME}.cue"
+          # De-raw the MODE1/2352 track back to an ISO and check the data landed
+          # at the volume root under the names saturn_cdfile.cxx looks up.
+          perl -e 'binmode STDIN; binmode STDOUT; while (read(STDIN,$s,2352)==2352) { print substr($s,16,2048) }' \
+            < "$out/${DISC_NAME}.bin" > /tmp/deraw.iso
+          xorriso -indev /tmp/deraw.iso -find / 2>/dev/null | tee /tmp/full-listing
+          for f in BANK01 BANK0D MEMLIST.BIN 0.BIN; do
+            grep -q "'/$f'" /tmp/full-listing || { echo "ERROR: /$f missing from the built disc"; exit 1; }
+          done
+          # IP.BIN is the SEGA boot header; without it byte-for-byte the disc
+          # is a coaster, and xorriso rewrites that area unless we restore it.
+          cmp -n 32768 "saturn/BuildDrop/${DISC_NAME}.iso" /tmp/deraw.iso
+          echo "Kit smoke test passed."
+
+      - name: Package setup kit
+        id: package
+        run: |
+          set -e
+          NAME="${DISC_NAME} - Setup Kit (${{ steps.kit.outputs.ver }})"
+          # One zip, files at its root -- unzip yields update.bat directly, with
+          # no wrapper folder to descend into.
+          (cd "${{ steps.kit.outputs.stage_dir }}" && zip -rq "$RUNNER_TEMP/${NAME}.zip" .)
+          echo "artifact_name=${NAME}"             >> "$GITHUB_OUTPUT"
+          echo "zip_path=$RUNNER_TEMP/${NAME}.zip" >> "$GITHUB_OUTPUT"
+
+      # Manual runs: surface the kit as a workflow artifact for inspection.
+      - name: Upload kit as workflow artifact (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: ${{ steps.kit.outputs.stage_dir }}
+
+      # Tag runs: attach to a release, creating it if missing.
+      - name: Attach to GitHub release (tag runs)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="${GITHUB_REF_NAME}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            # printf, not an indented multi-line literal: inside a YAML block
+            # scalar every continuation line would carry its indentation into
+            # the release notes.
+            printf '%s\n' \
+              "Automated Another World Saturn build from $TAG." \
+              "" \
+              "Unzip and run \`update.bat\` (double-click on Windows, or \`bash update.bat\`)." \
+              "It downloads the original PC DOS data files and builds a burnable cue/bin." \
+              "See README.md in the zip." > /tmp/notes.md
+            gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md
+          fi
+          gh release upload "$TAG" "${{ steps.package.outputs.zip_path }}" --clobber

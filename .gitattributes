@@ -1,0 +1,10 @@
+# tools/assets/*.bat are polyglot batch/shell scripts whose POSIX halves span
+# many lines. A CR at the end of each would land inside the commands, so pin
+# them to LF regardless of core.autocrlf. cmd.exe reads LF-only batch files
+# fine. lib/*.sh is sourced by those halves and wants the same treatment.
+tools/assets/*.bat text eol=lf
+tools/assets/lib/*.sh text eol=lf
+
+# Vendored xorriso/iso2raw. Never let eol conversion or diff heuristics near
+# them -- a single translated byte makes the executables unrunnable.
+tools/assets/bin/** binary

@@ -1,0 +1,6 @@
+# Working dirs produced by running the kit scripts in place. In a checkout
+# data.bat writes to saturn/cd/data instead (see CONFIG.ME), so these only
+# appear when someone exercises the released-kit layout locally.
+/data/
+/Another World (USA)/
+/Another World (USA) - Complete/

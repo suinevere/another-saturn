@@ -1,0 +1,87 @@
+name: Build full disc image (with game data)
+
+# Manual only, and ARTIFACT only. This build downloads the original Another
+# World data files and bakes them into the disc, so the result is not ours to
+# redistribute -- it is never attached to a public release. The kit that end
+# users get is built by release.yml, which ships an engine-only disc plus
+# update.bat and lets them supply their own copy of the data.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DISC_NAME: Another World (USA)
+
+jobs:
+  full-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install host tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xorriso wget unzip zip curl
+
+      - name: Cache SaturnRingLib toolchain
+        id: toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            SaturnRingLib/Compiler
+            SaturnRingLib/tools/bin
+          key: srl-toolchain-gcc14.2.0-iso2raw0.2.2
+
+      - name: Fetch SH-2 toolchain + iso2raw
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        working-directory: SaturnRingLib
+        run: |
+          set -e
+          bash tools/scripts/getcompiler.sh 14.2.0
+          bash tools/scripts/getiso2raw.sh v0.2.2
+
+      # Before the build, not after: shared.mk authors the ISO straight out of
+      # saturn/cd/data (ASSETS_DIR), so the data files have to be sitting there
+      # when xorrisofs runs. No injection step is needed on this path.
+      - name: Fetch game data into the CD skeleton
+        run: |
+          set -e
+          bash tools/assets/data.bat
+          ls -la saturn/cd/data
+
+      - name: Build Saturn disc (release)
+        working-directory: saturn
+        run: |
+          set -e
+          export SRL_INSTALL_ROOT=../SaturnRingLib
+          bash ../SaturnRingLib/tools/scripts/make.sh release ../SaturnRingLib/Compiler
+          ls -la BuildDrop
+
+      - name: Sanity-check the disc
+        run: |
+          set -e
+          xorriso -indev "saturn/BuildDrop/${DISC_NAME}.iso" -find / 2>/dev/null | tee /tmp/listing
+          # 0.BIN is the first-read file the Saturn BIOS boots; the rest is what
+          # bank.cxx and resource.cxx open at runtime.
+          for f in 0.BIN MEMLIST.BIN BANK01 BANK0D; do
+            grep -q "'/$f'" /tmp/listing || { echo "ERROR: /$f missing from the disc"; exit 1; }
+          done
+          test -s "saturn/BuildDrop/${DISC_NAME}.bin"
+          grep -q "FILE \"${DISC_NAME}.bin\" BINARY" "saturn/BuildDrop/${DISC_NAME}.cue"
+          grep -q 'TRACK 01 MODE1/2352' "saturn/BuildDrop/${DISC_NAME}.cue"
+
+      - name: Stage burnable disc
+        run: |
+          set -e
+          # Just the cue + raw track, flat: unzipping gives the two files a
+          # burner or emulator wants, with no wrapper folder.
+          mkdir -p "$RUNNER_TEMP/disc"
+          cp "saturn/BuildDrop/${DISC_NAME}.bin" "saturn/BuildDrop/${DISC_NAME}.cue" "$RUNNER_TEMP/disc/"
+
+      - name: Upload full disc artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: another-world-saturn-complete-${{ github.sha }}
+          path: ${{ runner.temp }}/disc/

@@ -1,0 +1,26 @@
+# Another-Saturn asset kit configuration.
+# KEY=VALUE, one per line. Lines starting with '#' are ignored by both halves
+# of the scripts (POSIX anchors on '^KEY=', cmd uses FOR /F "eol=#").
+# Relative paths resolve against this file's own directory, not the caller's cwd.
+
+# --- data.bat ---------------------------------------------------------------
+
+# Original Another World / Out of This World PC DOS release. The archive is
+# flat: another.exe, bank01..bank0d, memlist.bin, config.*, music, logo, ...
+# Only bank* and memlist.bin are installed; the rest is DOS-side.
+GAME_URL=https://archive.org/download/another_world_pc/another_world_pc.zip
+
+# Where the data files land. In a source checkout this is the CD skeleton the
+# makefile turns into BuildDrop/<CD_NAME>.iso. In the released kit it is a
+# working dir whose contents update.bat injects into BASE_ISO.
+DATA_DIR=../../saturn/cd/data
+
+# --- update.bat (released kit only) -----------------------------------------
+
+# Engine-only disc image shipped with the kit -- no game data in it. update.bat
+# injects DATA_DIR's files at its root and re-emits the burnable track.
+BASE_ISO=./Another World (USA)/Another World (USA).iso
+
+# Basename of the finished bin/cue, and the folder they are written to.
+DISC_NAME=Another World (USA)
+OUTPUT_DIR=./Another World (USA) - Complete
