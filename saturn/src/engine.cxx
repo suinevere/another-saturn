@@ -94,12 +94,16 @@ static uint8_t s_saveBuf[SAVE_MAX_BYTES];
  | Engine::saveSlot
  | Description: Serialises the engine into the staging buffer and writes it to
  |   a backup RAM slot. The order of the saveOrLoad calls is the save format;
- |   do not reorder them.
+ |   do not reorder them. The payload length comes from the stream's write
+ |   position, not Serializer::_bytesCount -- Mixer::saveOrLoad calls
+ |   saveOrLoadEntries once per audio channel, and _bytesCount is reset at the
+ |   top of every such call, so it only ever holds the last channel's size.
  | Author: suinevere
  | Dependencies: savedata.h, saturn_backup.h, serializer.h
  | Globals: s_saveBuf
  | Params: device -- SAT_BUP_INTERNAL or SAT_BUP_CART; slot -- 0 to 2
- | Returns: false on a backup error, with lastSaveError set
+ | Returns: false on a backup error or an oversized save, with lastSaveError
+ |   set to a SAT_BUP_* code or ENGINE_SAVE_ERR_TOO_LARGE respectively
  ----------------------*/
 bool Engine::saveSlot(uint32_t device, int slot) {
 	memset(s_saveBuf, 0, sizeof(s_saveBuf));
@@ -117,13 +121,13 @@ bool Engine::saveSlot(uint32_t device, int slot) {
 	mixer.saveOrLoad(s);
 
 	if (f.ioErr()) {
-		_lastSaveError = SAT_BUP_ERR_NO_SPACE;
+		_lastSaveError = ENGINE_SAVE_ERR_TOO_LARGE;
 		return false;
 	}
 
 	char name[12];
 	savedataSlotName(slot, name);
-	const int32_t total = (int32_t)(SAVE_HEADER_SIZE + s._bytesCount);
+	const int32_t total = (int32_t)(SAVE_HEADER_SIZE + f.tell());
 	_lastSaveError = sat_bup_write(device, name, "ANOTHERWLD", s_saveBuf, total, 1);
 	return _lastSaveError == SAT_BUP_OK;
 }

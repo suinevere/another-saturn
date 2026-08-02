@@ -225,6 +225,39 @@ static void test_lean_state_fits_the_slot_budget(void)
     CHECK(s._bytesCount + 48 < 2048);
 }
 
+/* Mirrors Mixer::saveOrLoad, which calls saveOrLoadEntries once per audio
+   channel against one shared Serializer/File: _bytesCount resets at the top
+   of every saveOrLoadEntries call (serializer.cxx:29), so after several calls
+   it holds only the last call's size, not the run's total. File::tell() (the
+   underlying memFile's write position) is unaffected by that reset and stays
+   cumulative across calls on the same File. Engine::saveSlot must size its
+   sat_bup_write() from f.tell(), never from s._bytesCount, once more than one
+   saveOrLoadEntries call has run against the stream. */
+static void test_multiple_entries_calls_bytescount_is_last_call_only(void)
+{
+    uint8_t buf[64];
+    memset(buf, 0, sizeof(buf));
+
+    uint8_t a = 0x11, b = 0x22, c = 0x33;
+
+    File f;
+    CHECK(f.openMemory(buf, sizeof(buf), true));
+    Serializer s(&f, Serializer::SM_SAVE, 0);
+
+    for (int i = 0; i < 3; ++i) {
+        Serializer::Entry entries[] = {
+            SE_INT(&a, Serializer::SES_INT8, VER(1)),
+            SE_INT(&b, Serializer::SES_INT8, VER(1)),
+            SE_INT(&c, Serializer::SES_INT8, VER(1)),
+            SE_END()
+        };
+        s.saveOrLoadEntries(entries);
+    }
+
+    CHECK_EQ(s._bytesCount, 3);
+    CHECK_EQ(f.tell(), 9);
+}
+
 int main(void)
 {
     test_memory_file_round_trip();
@@ -236,6 +269,7 @@ int main(void)
     test_version_three_load_leaves_pages_untouched();
     test_version_two_load_still_reads_pages();
     test_lean_state_fits_the_slot_budget();
+    test_multiple_entries_calls_bytescount_is_last_call_only();
 
     if (g_fail == 0) {
         printf("all tests passed\n");

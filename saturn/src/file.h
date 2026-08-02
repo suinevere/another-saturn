@@ -43,6 +43,17 @@ struct File {
 	void close();
 	bool ioErr() const;
 	void seek(int32_t off);
+	/*----------------------
+	 | tell
+	 | Description: Current write/read position, for callers that need an exact
+	 |   byte count of what has been written so far (e.g. a save spanning
+	 |   several serialiser calls, whose combined size the serialiser itself
+	 |   does not track).
+	 | Author: suinevere
+	 | Params: N/A
+	 | Returns: the impl's current byte offset, 0 for impls that don't track it
+	 ----------------------*/
+	uint32_t tell();
 	void read(void *ptr, uint32_t size);
 	uint8_t readByte();
 	uint16_t readUint16BE();

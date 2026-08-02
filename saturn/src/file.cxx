@@ -38,6 +38,7 @@ struct File_impl {
 	virtual void seek(int32_t off) = 0;
 	virtual void read(void *ptr, uint32_t size) = 0;
 	virtual void write(void *ptr, uint32_t size) = 0;
+	virtual uint32_t tell() { return 0; }
 };
 
 /*----------------------
@@ -86,6 +87,7 @@ struct memFile : File_impl {
 		memcpy(_buf + _pos, ptr, size);
 		_pos += size;
 	}
+	uint32_t tell() { return _pos; }
 };
 
 struct stdFile : File_impl {
@@ -281,6 +283,18 @@ bool File::ioErr() const {
 
 void File::seek(int32_t off) {
 	_impl->seek(off);
+}
+
+/*----------------------
+ | File::tell
+ | Description: Reports the current write/read position. memFile tracks it
+ |   exactly; other impls report 0 since nothing needs their position.
+ | Author: suinevere
+ | Params: N/A
+ | Returns: the impl's current byte offset
+ ----------------------*/
+uint32_t File::tell() {
+	return _impl->tell();
 }
 
 void File::read(void *ptr, uint32_t size) {

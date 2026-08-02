@@ -28,6 +28,20 @@
 
 struct System;
 
+/*----------------------
+ | ENGINE_SAVE_ERR_TOO_LARGE
+ | Description: lastSaveError() code for a save whose serialised state
+ |   overflowed the SAVE_MAX_BYTES staging buffer before backup RAM was ever
+ |   touched. Distinct from the SAT_BUP_* range (0-7, see saturn_backup.h) so
+ |   the two error spaces cannot collide; this one is a programming error
+ |   (save state too big), not a device condition, and must not be shown to
+ |   the player as a full-device message.
+ | Author: suinevere
+ ----------------------*/
+enum {
+	ENGINE_SAVE_ERR_TOO_LARGE = 100
+};
+
 struct Engine {
 	System *sys;
 	VirtualMachine vm;
@@ -47,6 +61,16 @@ struct Engine {
 
 	bool saveSlot(uint32_t device, int slot);
 	bool loadSlot(uint32_t device, int slot);
+	/*----------------------
+	 | Engine::lastSaveError
+	 | Description: Status of the most recent saveSlot/loadSlot call, for the
+	 |   menu's status line.
+	 | Author: suinevere
+	 | Dependencies: saturn_backup.h
+	 | Globals: N/A
+	 | Params: N/A
+	 | Returns: a SAT_BUP_* code (saturn_backup.h) or an ENGINE_SAVE_ERR_* code
+	 ----------------------*/
 	int lastSaveError() const { return _lastSaveError; }
 	void startNewGame();
 };
