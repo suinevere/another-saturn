@@ -603,6 +603,9 @@ bool Menu::runPause() {
 	menuStateEnterPause(&_st);
 	_statusError = SAT_BUP_OK;
 
+	_engine->player.pause();
+	_engine->mixer.stopAll();
+
 	sat_video_get_palette(_savedPal);
 	menuDrawDimPalette(_savedPal, _dimPal, MENU_COL_TEXT);
 	_sys->setPalette(_dimPal);
@@ -648,6 +651,7 @@ bool Menu::runPause() {
 
 	if (!paletteOwnedByLoad) {
 		_engine->video.changePal(_engine->video.currentPaletteId);
+		_engine->player.resume();
 	}
 	if (resume) {
 		_sys->updateDisplay(_engine->video._curPagePtr2);

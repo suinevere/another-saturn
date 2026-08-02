@@ -61,6 +61,15 @@ struct SfxPlayer {
 	int _timerId;
 	uint16_t _delay;
 	uint16_t _resNum;
+
+	/*----------------------
+	 | _paused
+	 | Description: Whether pause() has suspended the pattern timer. Kept out of
+	 |   saveOrLoad's entry table on purpose: it is a transient of the menu being
+	 |   open, not part of the save format.
+	 | Author: suinevere
+	 ----------------------*/
+	bool _paused;
 	SfxModule _sfxMod;
 	int16_t *_markVar;
 
@@ -73,6 +82,32 @@ struct SfxPlayer {
 	void prepareInstruments(const uint8_t *p);
 	void start();
 	void stop();
+
+	/*----------------------
+	 | SfxPlayer::pause
+	 | Description: Suspends the pattern timer without disturbing the module or
+	 |   its position, so the music can be resumed exactly where it left off.
+	 |   Distinct from stop(), which clears _resNum, and from start(), which
+	 |   rewinds to the beginning -- neither is usable for a pause.
+	 | Author: suinevere
+	 | Dependencies: N/A
+	 | Globals: N/A
+	 | Params: N/A
+	 | Returns: N/A
+	 ----------------------*/
+	void pause();
+
+	/*----------------------
+	 | SfxPlayer::resume
+	 | Description: Restarts the pattern timer suspended by pause(). Does
+	 |   nothing if no module is loaded or the player was never paused.
+	 | Author: suinevere
+	 | Dependencies: N/A
+	 | Globals: N/A
+	 | Params: N/A
+	 | Returns: N/A
+	 ----------------------*/
+	void resume();
 	void handleEvents();
 	void handlePattern(uint8_t channel, const uint8_t *patternData);
 

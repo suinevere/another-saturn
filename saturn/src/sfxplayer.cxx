@@ -29,6 +29,7 @@ SfxPlayer::SfxPlayer(Mixer *mix, Resource *res, System *stub)
 
 void SfxPlayer::init() {
 	_mutex = sys->createMutex();
+	_paused = false;
 }
 
 void SfxPlayer::free() {
@@ -108,6 +109,44 @@ void SfxPlayer::stop() {
 	if (_resNum != 0) {
 		_resNum = 0;
 		sys->removeTimer(_timerId);
+	}
+	_paused = false;
+}
+
+/*----------------------
+ | SfxPlayer::pause
+ | Description: Suspends the pattern timer, leaving the module and its position
+ |   intact so resume() can carry on from the same note.
+ | Author: suinevere
+ | Dependencies: sys.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void SfxPlayer::pause() {
+	debug(DBG_SND, "SfxPlayer::pause()");
+	MutexStack(sys, _mutex);
+	if (_resNum != 0 && !_paused) {
+		_paused = true;
+		sys->removeTimer(_timerId);
+	}
+}
+
+/*----------------------
+ | SfxPlayer::resume
+ | Description: Restarts the timer pause() suspended.
+ | Author: suinevere
+ | Dependencies: sys.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void SfxPlayer::resume() {
+	debug(DBG_SND, "SfxPlayer::resume()");
+	MutexStack(sys, _mutex);
+	if (_resNum != 0 && _paused) {
+		_paused = false;
+		_timerId = sys->addTimer(_delay, eventsCallback, this);
 	}
 }
 
