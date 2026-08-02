@@ -282,6 +282,55 @@ static void test_slot_cancel_goes_back_to_the_opening_screen(void)
     CHECK_EQ(p.screen, MENU_PAUSE);
 }
 
+static void test_save_over_used_slot_decline_stays_on_slots(void)
+{
+    MenuState st;
+    memset(&st, 0, sizeof(st));
+    menuStateEnterPause(&st);
+    st.screen = MENU_SLOTS;
+    st.saving = true;
+    st.slots[0].state = SLOT_OK;
+    MenuInput confirm = press("confirm");
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_NONE);
+    CHECK_EQ(st.screen, MENU_CONFIRM);
+    CHECK(!st.confirmYes);
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_NONE);
+    CHECK_EQ(st.screen, MENU_SLOTS);
+}
+
+static void test_confirm_cancel_declines_return_to_title(void)
+{
+    MenuState st;
+    memset(&st, 0, sizeof(st));
+    menuStateEnterPause(&st);
+    MenuInput down = press("down");
+    for (int i = 0; i < 3; ++i) {
+        menuStateStep(&st, &down);
+    }
+    MenuInput confirm = press("confirm");
+    menuStateStep(&st, &confirm);
+    CHECK_EQ(st.screen, MENU_CONFIRM);
+    MenuInput cancel = press("cancel");
+    CHECK_EQ(menuStateStep(&st, &cancel), MENU_ACT_NONE);
+    CHECK_EQ(st.screen, MENU_PAUSE);
+}
+
+static void test_confirm_cancel_declines_save_overwrite(void)
+{
+    MenuState st;
+    memset(&st, 0, sizeof(st));
+    menuStateEnterPause(&st);
+    st.screen = MENU_SLOTS;
+    st.saving = true;
+    st.slots[0].state = SLOT_DAMAGED;
+    MenuInput confirm = press("confirm");
+    menuStateStep(&st, &confirm);
+    CHECK_EQ(st.screen, MENU_CONFIRM);
+    MenuInput cancel = press("cancel");
+    CHECK_EQ(menuStateStep(&st, &cancel), MENU_ACT_NONE);
+    CHECK_EQ(st.screen, MENU_SLOTS);
+}
+
 static void test_empty_input_does_nothing(void)
 {
     MenuState st;
@@ -306,6 +355,9 @@ int main(void)
     test_confirm_yes_returns_to_title();
     test_save_over_empty_slot_needs_no_confirmation();
     test_save_over_used_slot_asks_first();
+    test_save_over_used_slot_decline_stays_on_slots();
+    test_confirm_cancel_declines_return_to_title();
+    test_confirm_cancel_declines_save_overwrite();
     test_load_refuses_empty_and_damaged_slots();
     test_save_over_damaged_slot_is_allowed();
     test_device_toggle_only_when_cart_present();
