@@ -31,4 +31,10 @@ g++ $OWN_FLAGS -I../src/system \
     -o run_tests_bupstub test_backup_stub.cxx stub_saturn_backup.cxx
 ./run_tests_bupstub
 
+echo "== savedata =="
+g++ $OWN_FLAGS -DAUTO_DETECT_PLATFORM -I../src -I../src/system \
+    -o run_tests_savedata test_savedata.cxx stub_saturn_backup.cxx \
+    ../src/savedata.cxx
+./run_tests_savedata
+
 echo "all suites passed"
