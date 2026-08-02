@@ -228,9 +228,12 @@ extern "C" uint32_t sat_input_read(void)
         if (port0.IsHeld(SRL::Input::Digital::Button::Down))  bits |= SAT_PAD_DOWN;
         if (port0.IsHeld(SRL::Input::Digital::Button::Left))  bits |= SAT_PAD_LEFT;
         if (port0.IsHeld(SRL::Input::Digital::Button::Right)) bits |= SAT_PAD_RIGHT;
-        if (port0.IsHeld(SRL::Input::Digital::Button::A) ||
-            port0.IsHeld(SRL::Input::Digital::Button::B) ||
-            port0.IsHeld(SRL::Input::Digital::Button::C))     bits |= SAT_PAD_ACTION;
+        if (port0.IsHeld(SRL::Input::Digital::Button::A)) bits |= SAT_PAD_A;
+        if (port0.IsHeld(SRL::Input::Digital::Button::B)) bits |= SAT_PAD_B;
+        if (port0.IsHeld(SRL::Input::Digital::Button::C)) bits |= SAT_PAD_C;
+        if (bits & (SAT_PAD_A | SAT_PAD_B | SAT_PAD_C)) bits |= SAT_PAD_ACTION;
+        if (port0.IsHeld(SRL::Input::Digital::Button::L)) bits |= SAT_PAD_L;
+        if (port0.IsHeld(SRL::Input::Digital::Button::R)) bits |= SAT_PAD_R;
         if (port0.IsHeld(SRL::Input::Digital::Button::START)) bits |= SAT_PAD_PAUSE;
     }
 

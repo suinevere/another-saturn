@@ -37,6 +37,8 @@ struct PlayerInput {
 	bool button;
 	bool code;
 	bool pause;
+	bool menuConfirm, menuCancel;
+	bool menuLeft, menuRight;
 	bool quit;
 	char lastChar;
 };

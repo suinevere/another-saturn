@@ -81,6 +81,11 @@ void SaturnSystem::processEvents() {
 	input.button = (pad & SAT_PAD_ACTION) != 0;
 	input.pause  = (pad & SAT_PAD_PAUSE) != 0;
 
+	input.menuConfirm = (pad & (SAT_PAD_A | SAT_PAD_C)) != 0;
+	input.menuCancel  = (pad & SAT_PAD_B) != 0;
+	input.menuLeft    = (pad & SAT_PAD_L) != 0;
+	input.menuRight   = (pad & SAT_PAD_R) != 0;
+
 	// No keyboard: the code-entry screen and quitting have no pad equivalent
 	// yet, and there is nowhere to quit *to* on a console anyway.
 	input.quit = false;

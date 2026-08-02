@@ -71,6 +71,19 @@ void sat_video_present(const uint8_t *page);
 #define SAT_PAD_PAUSE  (1u << 5)  /* Start */
 
 /*----------------------
+ | SAT_PAD_A / _B / _C / _L / _R
+ | Description: Individual buttons, for menus that must tell confirm from
+ |   cancel. SAT_PAD_ACTION stays the union of A, B and C so gameplay input is
+ |   unchanged.
+ | Author: suinevere
+ ----------------------*/
+#define SAT_PAD_A      (1u << 6)
+#define SAT_PAD_B      (1u << 7)
+#define SAT_PAD_C      (1u << 8)
+#define SAT_PAD_L      (1u << 9)
+#define SAT_PAD_R      (1u << 10)
+
+/*----------------------
  | sat_input_read
  | Description: Reads pad 1 and returns the SAT_PAD_* bits currently held.
  | Author: suinevere
