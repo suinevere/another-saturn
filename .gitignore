@@ -38,6 +38,8 @@ saturn/tests/run_tests_scsp
 saturn/tests/run_tests_scsp.exe
 saturn/tests/run_tests_savefmt
 saturn/tests/run_tests_savefmt.exe
+saturn/tests/run_tests_bupdate
+saturn/tests/run_tests_bupdate.exe
 
 # --- Non-free game data ------------------------------------------------------
 # Another World's original PC DOS data files. Required to run, never committed.
