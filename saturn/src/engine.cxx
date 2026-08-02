@@ -22,21 +22,47 @@
 #include "sys.h"
 #include "parts.h"
 #include "savedata.h"
+#include "menu.h"
 
 Engine::Engine(System *paramSys, const char *dataDir, const char *saveDir)
 	: sys(paramSys), vm(&mixer, &res, &player, &video, sys), mixer(sys), res(&video, dataDir),
 	player(&mixer, &res, sys), video(&res, sys), _dataDir(dataDir), _saveDir(saveDir), _lastSaveError(SAT_BUP_OK) {
 }
 
+/*----------------------
+ | Engine::run
+ | Description: The top-level loop: title card, gameplay, pause menu. The VM
+ |   only advances in the playing state; a menu owns the frame while it is up.
+ | Author: suinevere
+ | Dependencies: menu.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 void Engine::run() {
+
+	static Menu menu;
+	menu.init(this);
 
 	while (!sys->input.quit) {
 
-		vm.checkThreadRequests();
+		menu.runTitle();
 
-		vm.inp_updatePlayer();
+		bool playing = true;
+		while (playing && !sys->input.quit) {
 
-		vm.hostFrame();
+			vm.checkThreadRequests();
+
+			vm.inp_updatePlayer();
+
+			if (sys->input.pause) {
+				sys->input.pause = false;
+				playing = menu.runPause();
+				continue;
+			}
+
+			vm.hostFrame();
+		}
 	}
 
 
@@ -70,8 +96,6 @@ void Engine::init() {
 	mixer.init();
 
 	player.init();
-
-	startNewGame();
 }
 
 void Engine::finish() {

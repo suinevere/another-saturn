@@ -50,6 +50,16 @@ void sat_video_init(void);
 void sat_video_set_palette(const uint8_t *colors);
 
 /*----------------------
+ | sat_video_get_palette
+ | Description: Hands back the last palette given to sat_video_set_palette, in
+ |   the same 4-bits-per-channel form. Lets the menu snapshot the game's live
+ |   palette, install a dimmed copy behind the pause screen, and restore it.
+ | Author: suinevere
+ | Params: out -- destination, must hold 32 bytes
+ ----------------------*/
+void sat_video_get_palette(uint8_t *out);
+
+/*----------------------
  | sat_video_present
  | Description: Pushes one finished engine page to the screen and waits for the
  |   next frame.

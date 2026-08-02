@@ -639,18 +639,6 @@ void VirtualMachine::inp_updatePlayer() {
 
 void VirtualMachine::inp_handleSpecialKeys() {
 
-	if (sys->input.pause) {
-
-		if (res->currentPartId != GAME_PART1 && res->currentPartId != GAME_PART2) {
-			sys->input.pause = false;
-			while (!sys->input.pause) {
-				sys->processEvents();
-				sys->sleep(200);
-			}
-		}
-		sys->input.pause = false;
-	}
-
 	if (sys->input.code) {
 		sys->input.code = false;
 		if (res->currentPartId != GAME_PART_LAST && res->currentPartId != GAME_PART_FIRST) {

@@ -44,6 +44,15 @@ static HighColor g_paletteColors[16];
 static SRL::Bitmap::Palette g_palette(g_paletteColors, 16);
 
 /*----------------------
+ | g_paletteRaw
+ | Description: The last palette handed to sat_video_set_palette, kept in the
+ |   engine's own 4-bits-per-channel form rather than the converted HighColor
+ |   one, so sat_video_get_palette can return exactly what was written.
+ | Author: suinevere
+ ----------------------*/
+static uint8_t g_paletteRaw[32];
+
+/*----------------------
  | g_vram
  | Description: Where NBG0's bitmap lives in VDP2 VRAM, captured after setup so
  |   each frame can be written straight there.
@@ -172,6 +181,11 @@ extern "C" void sat_video_set_palette(const uint8_t *colors)
     // internally (srl_color.hpp:66), so handing it a 5-bit value costs another
     // 3 bits and caps the brightest colour at 3/31. That is exactly what made
     // the first frames render nearly black.
+    for (int32_t i = 0; i < 32; i++)
+    {
+        g_paletteRaw[i] = colors[i];
+    }
+
     for (int32_t i = 0; i < 16; i++)
     {
         const uint8_t c1 = colors[i * 2 + 0];
@@ -188,6 +202,31 @@ extern "C" void sat_video_set_palette(const uint8_t *colors)
     if (SRL::VDP2::NBG0::TilePalette.GetData() != nullptr)
     {
         SRL::VDP2::NBG0::TilePalette.Load(g_paletteColors, 16);
+    }
+}
+
+/*----------------------
+ | sat_video_get_palette
+ | Description: Hands back the last 32 bytes given to sat_video_set_palette, in
+ |   the same 4-bits-per-channel form. The menu needs the game's live palette so
+ |   it can install a dimmed copy behind the pause screen and restore it on
+ |   resume; caching it here keeps that read in the layer that already owns CRAM
+ |   rather than making the system backend call up into the menu.
+ | Author: suinevere
+ | Globals: g_paletteRaw
+ | Params: out -- destination, must hold 32 bytes
+ | Returns: N/A
+ ----------------------*/
+extern "C" void sat_video_get_palette(uint8_t *out)
+{
+    if (out == nullptr)
+    {
+        return;
+    }
+
+    for (int32_t i = 0; i < 32; i++)
+    {
+        out[i] = g_paletteRaw[i];
     }
 }
 
