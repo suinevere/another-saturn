@@ -1419,7 +1419,9 @@ Implement all declared functions. Key behaviours the tests pin down:
 
 - `savedataWriteHeader` writes big-endian, magic `'AWSV'`, version `Serializer::CUR_VER`, and zero-fills the description.
 - `savedataReadHeader` returns false on magic mismatch and does not touch the outputs.
-- `savedataProbe` calls `sat_bup_dir`; absent → `SLOT_EMPTY`; then `sat_bup_read` of `SAVE_HEADER_SIZE` bytes; read error or magic mismatch → `SLOT_DAMAGED`; version < 3 → `SLOT_OLD_VERSION`; otherwise `SLOT_OK` with `partId` and `date` filled.
+- `savedataProbe` calls `sat_bup_dir`; absent → `SLOT_EMPTY`. Otherwise it reads the **whole slot** into a `SAVE_MAX_BYTES` static buffer and parses the header out of it; read error or magic mismatch → `SLOT_DAMAGED`; version < 3 → `SLOT_OLD_VERSION`; otherwise `SLOT_OK` with `partId` and `date` filled.
+
+  It must NOT read only `SAVE_HEADER_SIZE` bytes. `sat_bup_read` refuses when the stored `datasize` exceeds the destination capacity — a deliberate bound added in Task 2, because `BUP_Read` itself has no capacity parameter and would otherwise overrun. A real slot is ~1580 bytes, so a 48-byte read would be refused and every valid save would probe as `SLOT_DAMAGED`. The buffer is `static`, not a local: a 2 KB stack frame is too much for the SH-2's stack.
 - `savedataPickDefaultDevice` returns `SAT_BUP_CART` only when the cart is present, formatted, has saves, and internal does not. Every other case returns `SAT_BUP_INTERNAL`.
 - `savedataChapterName` covers `GAME_PART2` (`0x3E81`) through `GAME_PART10` (`0x3E89`) and returns `"UNKNOWN"` for anything else. Names must fit the slot row: at most 14 characters. Suggested set, adjust to taste: `INTRO`, `THE ARRIVAL`, `THE JAIL`, `THE ESCAPE`, `THE CAVERNS`, `THE BATHS`, `THE CITY`, `THE ARENA`, `THE FINAL`.
 
