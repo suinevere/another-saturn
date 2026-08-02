@@ -41,6 +41,7 @@ extern "C" {
 #define SAT_BUP_ERR_NO_SPACE    4
 #define SAT_BUP_ERR_NOT_FOUND   5
 #define SAT_BUP_ERR_BROKEN      6
+#define SAT_BUP_ERR_EXISTS      7  /* write refused: file exists, overwrite=0 */
 
 /*----------------------
  | SatBupDev
@@ -95,11 +96,14 @@ int sat_bup_dir(uint32_t device, const char *name, SatBupEntry *out);
 
 /*----------------------
  | sat_bup_read
- | Description: Reads a whole save into dst.
+ | Description: Reads a whole save into dst. Checks the stored file's size
+ |   against dst's capacity before reading, so an oversized file is refused
+ |   rather than overrunning dst.
  | Author: suinevere
  | Params: device -- device id; name -- BUP filename; dst -- destination;
  |   size -- capacity of dst
- | Returns: SAT_BUP_OK, or SAT_BUP_ERR_NOT_FOUND / SAT_BUP_ERR_BROKEN
+ | Returns: SAT_BUP_OK, or SAT_BUP_ERR_NOT_FOUND / SAT_BUP_ERR_BROKEN (also
+ |   returned when the stored file is larger than size)
  ----------------------*/
 int sat_bup_read(uint32_t device, const char *name, void *dst, int32_t size);
 
@@ -110,7 +114,8 @@ int sat_bup_read(uint32_t device, const char *name, void *dst, int32_t size);
  | Params: device -- device id; name -- BUP filename; comment -- up to 10
  |   characters shown by the Saturn's Backup Manager; src -- the bytes;
  |   size -- how many; overwrite -- non-zero to replace an existing file
- | Returns: SAT_BUP_OK, or SAT_BUP_ERR_NO_SPACE / _PROTECTED / _UNFORMAT
+ | Returns: SAT_BUP_OK, or SAT_BUP_ERR_EXISTS / _NO_SPACE / _PROTECTED /
+ |   _UNFORMAT
  ----------------------*/
 int sat_bup_write(uint32_t device, const char *name, const char *comment,
                   const void *src, int32_t size, int overwrite);
@@ -128,7 +133,7 @@ int sat_bup_delete(uint32_t device, const char *name);
  | sat_bup_date_now
  | Description: The current RTC time as a BUP date word.
  | Author: suinevere
- | Returns: the packed word, or 0 if the clock is unreadable
+ | Returns: the packed word
  ----------------------*/
 uint32_t sat_bup_date_now(void);
 

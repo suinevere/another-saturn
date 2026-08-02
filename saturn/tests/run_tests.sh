@@ -26,4 +26,9 @@ g++ $OWN_FLAGS -I../src/system \
     -o run_tests_bupdate test_backup_date.cxx stub_saturn_backup.cxx
 ./run_tests_bupdate
 
+echo "== backup stub =="
+g++ $OWN_FLAGS -I../src/system \
+    -o run_tests_bupstub test_backup_stub.cxx stub_saturn_backup.cxx
+./run_tests_bupstub
+
 echo "all suites passed"

@@ -46,21 +46,26 @@ static BupConfig s_bupCfg[3];
 /*----------------------
  | sat_bup_map_error
  | Description: Translates a raw BUP library return code into this file's
- |   device-agnostic error codes.
+ |   device-agnostic error codes. sega_bup.h defines no BUP_OK constant --
+ |   success is the literal 0 -- and no negative codes, so 0 is the only value
+ |   that may map to SAT_BUP_OK; every other value, known or not, is an error.
  | Author: suinevere
- | Params: rc -- BUP_* return code
+ | Params: rc -- BUP_* return code, or 0 for success
  | Returns: a SAT_BUP_* code
  ----------------------*/
 static int sat_bup_map_error(int32_t rc)
 {
     switch (rc) {
+    case 0:                        return SAT_BUP_OK;
     case BUP_NON:                  return SAT_BUP_ERR_NONE;
     case BUP_UNFORMAT:             return SAT_BUP_ERR_UNFORMAT;
     case BUP_WRITE_PROTECT:        return SAT_BUP_ERR_PROTECTED;
     case BUP_NOT_ENOUGH_MEMORY:    return SAT_BUP_ERR_NO_SPACE;
     case BUP_NOT_FOUND:            return SAT_BUP_ERR_NOT_FOUND;
+    case BUP_FOUND:                return SAT_BUP_ERR_EXISTS;
+    case BUP_NO_MATCH:             return SAT_BUP_ERR_BROKEN;
     case BUP_BROKEN:               return SAT_BUP_ERR_BROKEN;
-    default:                       return SAT_BUP_OK;
+    default:                       return SAT_BUP_ERR_BROKEN;
     }
 }
 
@@ -109,9 +114,13 @@ extern "C" int sat_bup_probe(uint32_t device, SatBupDev *out)
 /*----------------------
  | sat_bup_dir
  | Description: Looks a save up by name without reading its contents.
+ |   BUP_Dir is the one call in this file that returns a match count rather
+ |   than a status: negative is a real error, 0 is a clean not-found, and any
+ |   positive count means out was filled in.
  | Author: suinevere
  | Params: device -- device id; name -- BUP filename; out -- filled in
- | Returns: SAT_BUP_OK whether or not the file exists; check out->exists
+ | Returns: SAT_BUP_OK whether or not the file exists; check out->exists. An
+ |   error code means the lookup itself failed, and out is left zeroed.
  ----------------------*/
 extern "C" int sat_bup_dir(uint32_t device, const char *name, SatBupEntry *out)
 {
@@ -120,7 +129,10 @@ extern "C" int sat_bup_dir(uint32_t device, const char *name, SatBupEntry *out)
     memset(&dir, 0, sizeof(dir));
 
     int32_t rc = BUP_Dir(device, (uint8_t *)name, 1, &dir);
-    if (rc <= 0) {
+    if (rc < 0) {
+        return sat_bup_map_error(rc);
+    }
+    if (rc == 0) {
         return SAT_BUP_OK;
     }
     out->exists = 1;
@@ -131,16 +143,33 @@ extern "C" int sat_bup_dir(uint32_t device, const char *name, SatBupEntry *out)
 
 /*----------------------
  | sat_bup_read
- | Description: Reads a whole save into dst.
+ | Description: Reads a whole save into dst. BUP_Read itself has no
+ |   destination-capacity argument, so the size check happens up front via a
+ |   BUP_Dir lookup: if the stored file is bigger than dst, the read is
+ |   refused before BUP_Read ever runs.
  | Author: suinevere
  | Params: device -- device id; name -- BUP filename; dst -- destination;
- |   size -- unused, BUP_Read has no destination-capacity argument
- | Returns: SAT_BUP_OK, or a mapped error
+ |   size -- capacity of dst
+ | Returns: SAT_BUP_OK, or a mapped error, or SAT_BUP_ERR_BROKEN if the stored
+ |   file is larger than size
  ----------------------*/
 extern "C" int sat_bup_read(uint32_t device, const char *name, void *dst,
                             int32_t size)
 {
-    (void)size;
+    BupDir dir;
+    memset(&dir, 0, sizeof(dir));
+
+    int32_t dirRc = BUP_Dir(device, (uint8_t *)name, 1, &dir);
+    if (dirRc < 0) {
+        return sat_bup_map_error(dirRc);
+    }
+    if (dirRc == 0) {
+        return SAT_BUP_ERR_NOT_FOUND;
+    }
+    if (dir.datasize > (uint32_t)size) {
+        return SAT_BUP_ERR_BROKEN;
+    }
+
     int32_t rc = BUP_Read(device, (uint8_t *)name, (uint8_t *)dst);
     return sat_bup_map_error(rc);
 }

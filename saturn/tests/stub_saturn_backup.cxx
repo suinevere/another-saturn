@@ -152,11 +152,14 @@ int sat_bup_dir(uint32_t device, const char *name, SatBupEntry *out)
 
 /*----------------------
  | sat_bup_read
- | Description: Reads a stub file's bytes into dst.
+ | Description: Reads a stub file's bytes into dst. Refuses rather than
+ |   truncates when the stored file is bigger than dst, matching the real
+ |   wrapper's BUP_Dir-then-BUP_Read behaviour instead of masking it.
  | Author: suinevere
  | Params: device -- device id; name -- filename; dst -- destination;
  |   size -- capacity of dst
- | Returns: SAT_BUP_OK, or SAT_BUP_ERR_NOT_FOUND
+ | Returns: SAT_BUP_OK, or SAT_BUP_ERR_NOT_FOUND / SAT_BUP_ERR_BROKEN (when
+ |   the stored file is larger than size)
  ----------------------*/
 int sat_bup_read(uint32_t device, const char *name, void *dst, int32_t size)
 {
@@ -164,19 +167,28 @@ int sat_bup_read(uint32_t device, const char *name, void *dst, int32_t size)
     if (!f) {
         return SAT_BUP_ERR_NOT_FOUND;
     }
-    memcpy(dst, f->data, f->size < size ? f->size : size);
+    if (f->size > size) {
+        return SAT_BUP_ERR_BROKEN;
+    }
+    memcpy(dst, f->data, f->size);
     return SAT_BUP_OK;
 }
 
 /*----------------------
  | sat_bup_write
  | Description: Writes or overwrites a stub file, enforcing the same presence,
- |   format, protection, and space rules the real BIOS would.
+ |   format, protection, and space rules the real BIOS would. Refusing a file
+ |   that already exists when overwrite=0 reports SAT_BUP_ERR_EXISTS, matching
+ |   the real wrapper's BUP_FOUND mapping -- not SAT_BUP_ERR_NO_SPACE, which
+ |   would be a lie about why the write was refused. size is also bounded
+ |   against STUB_MAX_BYTES so an oversized write cannot overrun a StubFile's
+ |   fixed-size data array.
  | Author: suinevere
  | Globals: s_dev
  | Params: device -- device id; name -- filename; comment -- unused by the
  |   stub; src -- bytes; size -- how many; overwrite -- non-zero to replace
- | Returns: SAT_BUP_OK, or SAT_BUP_ERR_NO_SPACE / _PROTECTED / _UNFORMAT / _NONE
+ | Returns: SAT_BUP_OK, or SAT_BUP_ERR_EXISTS / _NO_SPACE / _PROTECTED /
+ |   _UNFORMAT / _NONE
  ----------------------*/
 int sat_bup_write(uint32_t device, const char *name, const char *comment,
                   const void *src, int32_t size, int overwrite)
@@ -186,10 +198,11 @@ int sat_bup_write(uint32_t device, const char *name, const char *comment,
     if (!s_dev[device].formatted) return SAT_BUP_ERR_UNFORMAT;
     if (s_dev[device].writeProtected) return SAT_BUP_ERR_PROTECTED;
     if ((uint32_t)size > s_dev[device].freeBytes) return SAT_BUP_ERR_NO_SPACE;
+    if (size > STUB_MAX_BYTES) return SAT_BUP_ERR_NO_SPACE;
 
     StubFile *f = stub_find(device, name);
     if (f && !overwrite) {
-        return SAT_BUP_ERR_NO_SPACE;
+        return SAT_BUP_ERR_EXISTS;
     }
     if (f) {
         memcpy(f->data, src, size);
