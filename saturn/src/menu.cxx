@@ -647,7 +647,10 @@ bool Menu::runPause() {
 	}
 
 	if (!paletteOwnedByLoad) {
-		_sys->setPalette(_savedPal);
+		_engine->video.changePal(_engine->video.currentPaletteId);
+	}
+	if (resume) {
+		_sys->updateDisplay(_engine->video._curPagePtr2);
 	}
 	return resume;
 }
