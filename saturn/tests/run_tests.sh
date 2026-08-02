@@ -37,4 +37,10 @@ g++ $OWN_FLAGS -DAUTO_DETECT_PLATFORM -I../src -I../src/system \
     ../src/savedata.cxx
 ./run_tests_savedata
 
+echo "== menu state =="
+g++ $OWN_FLAGS -DAUTO_DETECT_PLATFORM -I../src -I../src/system \
+    -o run_tests_menustate test_menu_state.cxx stub_saturn_backup.cxx \
+    ../src/menu_state.cxx ../src/savedata.cxx
+./run_tests_menustate
+
 echo "all suites passed"
