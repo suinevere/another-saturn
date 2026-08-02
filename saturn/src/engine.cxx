@@ -51,14 +51,17 @@ void Engine::run() {
 		}
 
 		bool playing = true;
+		bool pauseLatched = false;
 		while (playing && !sys->input.quit) {
 
 			vm.checkThreadRequests();
 
 			vm.inp_updatePlayer();
 
-			if (sys->input.pause) {
-				sys->input.pause = false;
+			if (!sys->input.pause) {
+				pauseLatched = false;
+			} else if (!pauseLatched) {
+				pauseLatched = true;
 				playing = menu.runPause();
 				continue;
 			}
