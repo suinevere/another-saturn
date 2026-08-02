@@ -34,8 +34,19 @@ struct Menu {
 	int _statusError;
 	uint32_t _prevPad;
 	int _repeatTimer;
+	bool _devicesProbed;
 	SatBupDev _devInternal;
 	SatBupDev _devCart;
+
+	/*----------------------
+	 | Menu::ensureDevices
+	 | Description: Probes both backup devices and picks the starting one, once
+	 |   per run, on first entry to the slot list.
+	 | Author: suinevere
+	 | Params: N/A
+	 | Returns: N/A
+	 ----------------------*/
+	void ensureDevices();
 
 	/*----------------------
 	 | Menu::init
@@ -54,9 +65,10 @@ struct Menu {
 	 |   own palette, since no game part is loaded and there is none yet.
 	 | Author: suinevere
 	 | Params: N/A
-	 | Returns: N/A
+	 | Returns: true once a game is running; false only if the system asked to
+	 |   quit before one was chosen
 	 ----------------------*/
-	void runTitle();
+	bool runTitle();
 
 	/*----------------------
 	 | Menu::runPause

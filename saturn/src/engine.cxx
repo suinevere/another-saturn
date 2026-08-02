@@ -46,7 +46,9 @@ void Engine::run() {
 
 	while (!sys->input.quit) {
 
-		menu.runTitle();
+		if (!menu.runTitle()) {
+			continue;
+		}
 
 		bool playing = true;
 		while (playing && !sys->input.quit) {

@@ -71,7 +71,11 @@ enum {
 	MENU_PAD_CONFIRM = 1 << 4,
 	MENU_PAD_CANCEL  = 1 << 5,
 	MENU_PAD_PAUSE   = 1 << 6,
-	MENU_PAD_NAV     = MENU_PAD_UP | MENU_PAD_DOWN | MENU_PAD_LEFT | MENU_PAD_RIGHT
+	MENU_PAD_L       = 1 << 7,
+	MENU_PAD_R       = 1 << 8,
+	MENU_PAD_NAV     = MENU_PAD_UP | MENU_PAD_DOWN | MENU_PAD_LEFT | MENU_PAD_RIGHT,
+	MENU_PAD_EDGE    = MENU_PAD_CONFIRM | MENU_PAD_CANCEL | MENU_PAD_PAUSE |
+	                   MENU_PAD_L | MENU_PAD_R
 };
 
 /*----------------------
@@ -261,10 +265,34 @@ void Menu::init(Engine *e) {
 	_statusError = SAT_BUP_OK;
 	_prevPad = 0;
 	_repeatTimer = 0;
+	_devicesProbed = false;
 
 	memset(&_st, 0, sizeof(_st));
 	memset(_savedPal, 0, sizeof(_savedPal));
 	memset(_dimPal, 0, sizeof(_dimPal));
+	memset(&_devInternal, 0, sizeof(_devInternal));
+	memset(&_devCart, 0, sizeof(_devCart));
+
+	_st.device = SAT_BUP_INTERNAL;
+}
+
+/*----------------------
+ | Menu::ensureDevices
+ | Description: Probes both backup devices and picks the starting one, once per
+ |   run. Deliberately not done in init: this is the first code in the whole
+ |   port that actually executes BIOS backup calls, and running it before the
+ |   first frame is presented turns any fault there into a black screen with
+ |   nothing to go on. Deferring it to the moment the slot list opens keeps the
+ |   title card and Start Game working even if backup RAM does not.
+ | Author: suinevere
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void Menu::ensureDevices() {
+	if (_devicesProbed) {
+		return;
+	}
+	_devicesProbed = true;
 
 	sat_bup_probe(SAT_BUP_INTERNAL, &_devInternal);
 	sat_bup_probe(SAT_BUP_CART, &_devCart);
@@ -275,6 +303,50 @@ void Menu::init(Engine *e) {
 	                                       _devCart.present
 	                                           ? menuHasAnySave(SAT_BUP_CART)
 	                                           : 0);
+}
+
+/*----------------------
+ | menuPadMask
+ | Description: Polls the pad and collapses one frame of it into a bitmask.
+ |   Shoulder buttons get their own bits rather than folding into the D-pad's,
+ |   so the slot list's device toggle can be edge-only while the directions
+ |   auto-repeat.
+ | Author: suinevere
+ | Params: sys -- the system to poll
+ | Returns: the MENU_PAD_* bits held this frame
+ ----------------------*/
+static uint32_t menuPadMask(System *sys) {
+	sys->processEvents();
+
+	uint32_t now = 0;
+	if (sys->input.dirMask & PlayerInput::DIR_UP)    now |= MENU_PAD_UP;
+	if (sys->input.dirMask & PlayerInput::DIR_DOWN)  now |= MENU_PAD_DOWN;
+	if (sys->input.dirMask & PlayerInput::DIR_LEFT)  now |= MENU_PAD_LEFT;
+	if (sys->input.dirMask & PlayerInput::DIR_RIGHT) now |= MENU_PAD_RIGHT;
+	if (sys->input.menuLeft)  now |= MENU_PAD_L;
+	if (sys->input.menuRight) now |= MENU_PAD_R;
+	if (sys->input.menuConfirm) now |= MENU_PAD_CONFIRM;
+	if (sys->input.menuCancel)  now |= MENU_PAD_CANCEL;
+	if (sys->input.pause)       now |= MENU_PAD_PAUSE;
+
+	return now;
+}
+
+/*----------------------
+ | menuPrimeEdges
+ | Description: Seeds the edge detector with whatever is held right now, so a
+ |   button still down from the action that opened this screen is not read as a
+ |   fresh press. Without this a menu entered by pressing Start sees Start as
+ |   newly pressed on its first poll and closes itself before drawing once --
+ |   PlayerInput is level-triggered, and a human press spans many frames.
+ | Author: suinevere
+ | Params: sys -- the system to poll; prevPad -- seeded in place; repeatTimer --
+ |   reset in place
+ | Returns: N/A
+ ----------------------*/
+static void menuPrimeEdges(System *sys, uint32_t *prevPad, int *repeatTimer) {
+	*prevPad = menuPadMask(sys);
+	*repeatTimer = 0;
 }
 
 /*----------------------
@@ -291,18 +363,7 @@ void Menu::init(Engine *e) {
  ----------------------*/
 static void menuPollEdges(System *sys, uint32_t *prevPad, int *repeatTimer,
                           MenuInput *out) {
-	sys->processEvents();
-
-	uint32_t now = 0;
-	if (sys->input.dirMask & PlayerInput::DIR_UP)    now |= MENU_PAD_UP;
-	if (sys->input.dirMask & PlayerInput::DIR_DOWN)  now |= MENU_PAD_DOWN;
-	if (sys->input.dirMask & PlayerInput::DIR_LEFT)  now |= MENU_PAD_LEFT;
-	if (sys->input.dirMask & PlayerInput::DIR_RIGHT) now |= MENU_PAD_RIGHT;
-	if (sys->input.menuLeft)  now |= MENU_PAD_LEFT;
-	if (sys->input.menuRight) now |= MENU_PAD_RIGHT;
-	if (sys->input.menuConfirm) now |= MENU_PAD_CONFIRM;
-	if (sys->input.menuCancel)  now |= MENU_PAD_CANCEL;
-	if (sys->input.pause)       now |= MENU_PAD_PAUSE;
+	const uint32_t now = menuPadMask(sys);
 
 	const uint32_t nav = now & MENU_PAD_NAV;
 	const uint32_t prevNav = *prevPad & MENU_PAD_NAV;
@@ -320,14 +381,13 @@ static void menuPollEdges(System *sys, uint32_t *prevPad, int *repeatTimer,
 		*repeatTimer = 0;
 	}
 
-	fired |= now & ~(*prevPad) &
-	         (MENU_PAD_CONFIRM | MENU_PAD_CANCEL | MENU_PAD_PAUSE);
+	fired |= now & ~(*prevPad) & MENU_PAD_EDGE;
 	*prevPad = now;
 
 	out->up      = (fired & MENU_PAD_UP) != 0;
 	out->down    = (fired & MENU_PAD_DOWN) != 0;
-	out->left    = (fired & MENU_PAD_LEFT) != 0;
-	out->right   = (fired & MENU_PAD_RIGHT) != 0;
+	out->left    = (fired & (MENU_PAD_LEFT | MENU_PAD_L)) != 0;
+	out->right   = (fired & (MENU_PAD_RIGHT | MENU_PAD_R)) != 0;
 	out->confirm = (fired & MENU_PAD_CONFIRM) != 0;
 	out->cancel  = (fired & MENU_PAD_CANCEL) != 0;
 	out->pause   = (fired & MENU_PAD_PAUSE) != 0;
@@ -502,13 +562,13 @@ static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
 	sys->updateDisplay(page);
 }
 
-void Menu::runTitle() {
+bool Menu::runTitle() {
 	menuStateEnterTitle(&_st);
 	_statusError = SAT_BUP_OK;
-	_prevPad = 0;
-	_repeatTimer = 0;
 
 	_sys->setPalette(s_titlePalette);
+	menuRenderFrame(_page, _sys, &_st, _statusError, false, 0);
+	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
 	while (!_sys->input.quit) {
 		MenuInput in;
@@ -518,13 +578,14 @@ void Menu::runTitle() {
 
 		if (act == MENU_ACT_RESCAN_SLOTS) {
 			_statusError = SAT_BUP_OK;
+			ensureDevices();
 			menuRescan(&_st);
 		} else if (act == MENU_ACT_START_GAME) {
 			_engine->startNewGame();
-			return;
+			return true;
 		} else if (act == MENU_ACT_LOAD_SLOT) {
 			if (_engine->loadSlot(_st.device, _st.slotCursor)) {
-				return;
+				return true;
 			}
 			_statusError = _engine->lastSaveError();
 			menuRescan(&_st);
@@ -532,6 +593,8 @@ void Menu::runTitle() {
 
 		menuRenderFrame(_page, _sys, &_st, _statusError, false, 0);
 	}
+
+	return false;
 }
 
 bool Menu::runPause() {
@@ -539,14 +602,16 @@ bool Menu::runPause() {
 
 	menuStateEnterPause(&_st);
 	_statusError = SAT_BUP_OK;
-	_prevPad = 0;
-	_repeatTimer = 0;
 
 	sat_video_get_palette(_savedPal);
 	menuDrawDimPalette(_savedPal, _dimPal, MENU_COL_TEXT);
 	_sys->setPalette(_dimPal);
 
+	menuRenderFrame(_page, _sys, &_st, _statusError, true, backdrop);
+	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
+
 	bool resume = true;
+	bool paletteOwnedByLoad = false;
 
 	while (!_sys->input.quit) {
 		MenuInput in;
@@ -556,6 +621,7 @@ bool Menu::runPause() {
 
 		if (act == MENU_ACT_RESCAN_SLOTS) {
 			_statusError = SAT_BUP_OK;
+			ensureDevices();
 			menuRescan(&_st);
 		} else if (act == MENU_ACT_RESUME) {
 			resume = true;
@@ -570,6 +636,7 @@ bool Menu::runPause() {
 		} else if (act == MENU_ACT_LOAD_SLOT) {
 			if (_engine->loadSlot(_st.device, _st.slotCursor)) {
 				resume = true;
+				paletteOwnedByLoad = true;
 				break;
 			}
 			_statusError = _engine->lastSaveError();
@@ -579,6 +646,8 @@ bool Menu::runPause() {
 		menuRenderFrame(_page, _sys, &_st, _statusError, true, backdrop);
 	}
 
-	_sys->setPalette(_savedPal);
+	if (!paletteOwnedByLoad) {
+		_sys->setPalette(_savedPal);
+	}
 	return resume;
 }

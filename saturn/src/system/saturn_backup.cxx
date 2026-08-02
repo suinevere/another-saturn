@@ -33,7 +33,7 @@ extern "C" {
  |   see the task 2 report.
  | Author: suinevere
  ----------------------*/
-static uint32_t s_bupWork[0x2000 / 4];
+static uint32_t s_bupWork[0x1000];
 
 /*----------------------
  | s_bupCfg
