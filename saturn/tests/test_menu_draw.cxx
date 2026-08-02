@@ -90,6 +90,73 @@ static void test_char_lands_on_the_right_cell(void)
     CHECK_EQ(pixelAt(23, 16), 0);
 }
 
+/* Zeroes the font instead of filling it solid, so a test can set one
+   asymmetric row and tell left from right and high nibble from low. */
+static void setupAsymmetricFont(void)
+{
+    memset(g_page, 0, sizeof(g_page));
+    memset(g_font, 0, sizeof(g_font));
+}
+
+static int pageIsAllZero(void)
+{
+    for (int i = 0; i < MENU_PAGE_SIZE; ++i) {
+        if (g_page[i] != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void test_char_bit7_maps_to_leftmost_pixel(void)
+{
+    setupAsymmetricFont();
+    g_font[('A' - ' ') * 8] = 0x80;
+    menuDrawChar(g_page, g_font, 0, 0, 9, 'A');
+    CHECK_EQ(pixelAt(0, 0), 9);
+    for (int x = 1; x < 8; ++x) {
+        CHECK_EQ(pixelAt(x, 0), 0);
+    }
+}
+
+static void test_char_nibble_boundary_within_a_byte(void)
+{
+    setupAsymmetricFont();
+    g_font[('A' - ' ') * 8] = 0xC0;
+    menuDrawChar(g_page, g_font, 0, 0, 9, 'A');
+    CHECK_EQ(pixelAt(0, 0), 9);
+    CHECK_EQ(pixelAt(1, 0), 9);
+    for (int x = 2; x < 8; ++x) {
+        CHECK_EQ(pixelAt(x, 0), 0);
+    }
+}
+
+static void test_char_right_side_bits_land_on_the_right(void)
+{
+    setupAsymmetricFont();
+    g_font[('A' - ' ') * 8] = 0x03;
+    menuDrawChar(g_page, g_font, 0, 0, 9, 'A');
+    for (int x = 0; x < 6; ++x) {
+        CHECK_EQ(pixelAt(x, 0), 0);
+    }
+    CHECK_EQ(pixelAt(6, 0), 9);
+    CHECK_EQ(pixelAt(7, 0), 9);
+}
+
+static void test_char_negative_cellx_leaves_page_unmodified(void)
+{
+    setup();
+    menuDrawChar(g_page, g_font, -1, 0, 9, 'A');
+    CHECK_EQ(pageIsAllZero(), 1);
+}
+
+static void test_char_negative_y_leaves_page_unmodified(void)
+{
+    setup();
+    menuDrawChar(g_page, g_font, 0, -1, 9, 'A');
+    CHECK_EQ(pageIsAllZero(), 1);
+}
+
 static void test_text_advances_one_cell_per_character(void)
 {
     setup();
@@ -140,6 +207,11 @@ int main(void)
     test_fill_clips_to_the_page();
     test_char_writes_eight_by_eight();
     test_char_lands_on_the_right_cell();
+    test_char_bit7_maps_to_leftmost_pixel();
+    test_char_nibble_boundary_within_a_byte();
+    test_char_right_side_bits_land_on_the_right();
+    test_char_negative_cellx_leaves_page_unmodified();
+    test_char_negative_y_leaves_page_unmodified();
     test_text_advances_one_cell_per_character();
     test_text_off_the_right_edge_is_dropped();
     test_dim_halves_every_channel();
