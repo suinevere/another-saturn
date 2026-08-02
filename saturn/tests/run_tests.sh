@@ -43,4 +43,9 @@ g++ $OWN_FLAGS -DAUTO_DETECT_PLATFORM -I../src -I../src/system \
     ../src/menu_state.cxx ../src/savedata.cxx
 ./run_tests_menustate
 
+echo "== menu draw =="
+g++ $OWN_FLAGS -I../src \
+    -o run_tests_menudraw test_menu_draw.cxx ../src/menu_draw.cxx
+./run_tests_menudraw
+
 echo "all suites passed"

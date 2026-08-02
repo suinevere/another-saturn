@@ -1,0 +1,134 @@
+/*----------------------
+ | menu_draw.cxx
+ | Description: Fills, text and palette dimming over a raw 4bpp page buffer.
+ |   No engine headers, no SGL: see menu_draw.h for why.
+ | Author: suinevere
+ | Dependencies: menu_draw.h
+ ----------------------*/
+#include "menu_draw.h"
+
+/*----------------------
+ | menuDrawFill
+ | Description: Fills an axis-aligned rectangle with a solid color, clipped to
+ |   the page.
+ | Author: suinevere
+ | Params: page -- MENU_PAGE_SIZE bytes; x, y -- top-left corner in pixels;
+ |         w, h -- size in pixels; color -- 4-bit palette index, low nibble
+ | Returns: N/A
+ ----------------------*/
+void menuDrawFill(uint8_t *page, int x, int y, int w, int h, uint8_t color)
+{
+	int x0 = x;
+	int y0 = y;
+	int x1 = x + w;
+	int y1 = y + h;
+
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > MENU_PAGE_W) x1 = MENU_PAGE_W;
+	if (y1 > MENU_PAGE_H) y1 = MENU_PAGE_H;
+
+	for (int py = y0; py < y1; ++py) {
+		for (int px = x0; px < x1; ++px) {
+			uint8_t *b = page + py * MENU_PAGE_PITCH + px / 2;
+			if (px & 1) {
+				*b = (*b & 0xF0) | color;
+			} else {
+				*b = (*b & 0x0F) | (color << 4);
+			}
+		}
+	}
+}
+
+/*----------------------
+ | menuDrawChar
+ | Description: Draws one glyph, packing two pixels per byte the same way
+ |   Video::drawChar does.
+ | Author: suinevere
+ | Params: page -- MENU_PAGE_SIZE bytes; font -- 8 bytes per glyph starting at
+ |         ' '; cellX -- column, 0..39; y -- row in scanlines, 0..192;
+ |         color -- 4-bit palette index; c -- the glyph to draw
+ | Returns: N/A
+ ----------------------*/
+void menuDrawChar(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t color, char c)
+{
+	if (cellX < 0 || cellX > 39 || y < 0 || y > 192) {
+		return;
+	}
+
+	const uint8_t *ft = font + (c - ' ') * 8;
+	uint8_t *p = page + cellX * 4 + y * MENU_PAGE_PITCH;
+
+	for (int j = 0; j < 8; ++j) {
+		uint8_t ch = ft[j];
+		for (int i = 0; i < 4; ++i) {
+			uint8_t b = p[i];
+			uint8_t cmask = 0xFF;
+			uint8_t colb = 0;
+			if (ch & 0x80) {
+				colb |= color << 4;
+				cmask &= 0x0F;
+			}
+			ch <<= 1;
+			if (ch & 0x80) {
+				colb |= color;
+				cmask &= 0xF0;
+			}
+			ch <<= 1;
+			p[i] = (b & cmask) | colb;
+		}
+		p += MENU_PAGE_PITCH;
+	}
+}
+
+/*----------------------
+ | menuDrawText
+ | Description: Draws a string one glyph per cell, left to right, stopping at
+ |   cell 40 rather than wrapping.
+ | Author: suinevere
+ | Params: page -- MENU_PAGE_SIZE bytes; font -- glyph table, see menuDrawChar;
+ |         cellX -- starting column; y -- row in scanlines; color -- 4-bit
+ |         palette index; s -- NUL-terminated string
+ | Returns: N/A
+ ----------------------*/
+void menuDrawText(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t color, const char *s)
+{
+	int cx = cellX;
+	while (*s != '\0' && cx < 40) {
+		menuDrawChar(page, font, cx, y, color, *s);
+		++cx;
+		++s;
+	}
+}
+
+/*----------------------
+ | menuDrawDimPalette
+ | Description: Halves every channel of a 16-entry, 2-bytes-per-entry palette,
+ |   except that keepIndex, when 0..15, is written as full white instead of
+ |   dimmed.
+ | Author: suinevere
+ | Params: src -- 32 bytes, source palette; dst -- 32 bytes, may not overlap
+ |         src; keepIndex -- entry to keep bright, or any value outside 0..15
+ |         to dim all sixteen
+ | Returns: N/A
+ ----------------------*/
+void menuDrawDimPalette(const uint8_t *src, uint8_t *dst, int keepIndex)
+{
+	for (int i = 0; i < 16; ++i) {
+		if (i == keepIndex) {
+			dst[i * 2]     = 0x0F;
+			dst[i * 2 + 1] = 0xFF;
+			continue;
+		}
+
+		uint8_t b0 = src[i * 2];
+		uint8_t b1 = src[i * 2 + 1];
+
+		uint8_t r = (b0 & 0x0F) >> 1;
+		uint8_t g = ((b1 & 0xF0) >> 4) >> 1;
+		uint8_t b = (b1 & 0x0F) >> 1;
+
+		dst[i * 2]     = r;
+		dst[i * 2 + 1] = (g << 4) | b;
+	}
+}
