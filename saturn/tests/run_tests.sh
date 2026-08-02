@@ -21,4 +21,9 @@ g++ $ENGINE_FLAGS -DAUTO_DETECT_PLATFORM -I../src -I../src/system \
     ../src/serializer.cxx ../src/file.cxx ../src/util.cxx
 ./run_tests_savefmt
 
+echo "== backup date =="
+g++ $OWN_FLAGS -I../src/system \
+    -o run_tests_bupdate test_backup_date.cxx stub_saturn_backup.cxx
+./run_tests_bupdate
+
 echo "all suites passed"
