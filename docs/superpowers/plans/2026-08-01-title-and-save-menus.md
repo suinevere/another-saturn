@@ -28,7 +28,8 @@
   Use `N/A` for fields that do not apply. Keep prose to a sentence.
 - **Commits:** one sentence, no body, no bullets, no trailers. Never mention Claude, AI, or the session. Author of record is **suinevere**. Commit after every task.
 - **SRL isolation:** engine translation units must never include `<srl.hpp>`. Anything Saturn-specific goes behind a plain C header, implemented in a `.cxx` that includes only SRL/SGL. This is the `saturn_cdfile` / `saturn_platform` pattern; follow it exactly.
-- **Saturn build:** `cd saturn && make`. Host tests: `sh saturn/tests/run_tests.sh`.
+- **Saturn build:** `saturn/compile.bat release` — run it from the repo root via cmd. Do NOT use `cd saturn && make`: the SH-2 toolchain lives at `SaturnRingLib/Compiler/sh2eb-elf/bin` and is not on `PATH`; `compile.bat` puts it there and sets `SRL_INSTALL_ROOT`. A bare `make` fails on the first SGL object with `sh2eb-elf-gcc.exe: command not found`, which looks like a missing toolchain but is not.
+- **Host tests:** `sh saturn/tests/run_tests.sh` from the repo root. The suite needs `-DAUTO_DETECT_PLATFORM` on any translation unit that reaches `endian.h`, and must not `#include <cstdio>` — `intern.h` pulls in `saturn_compat.h`, which supplies its own `FILE` typedef and `printf` family and conflicts with the real header.
 - **Save version:** `Serializer::CUR_VER` is `3` after Task 1. Slot files are named `AW_SAVE1`, `AW_SAVE2`, `AW_SAVE3`.
 - **Device ids:** `SAT_BUP_INTERNAL = 1` (`BUP_MAIN_UNIT`), `SAT_BUP_CART = 2` (`BUP_CURTRIDGE`).
 - **Slot count:** `SAVE_NUM_SLOTS = 3`.
@@ -511,7 +512,7 @@ In `saturn/src/video.cxx`, in the `SM_LOAD` branch at :618, add the clear before
 
 - [ ] **Step 11: Build for Saturn**
 
-Run: `cd saturn && make`
+Run: `saturn/compile.bat release`
 Expected: builds clean. `video.cxx` is not host-compilable, so this build plus the on-target check in Task 4 is its only verification — the entry-table mechanism itself is covered by Step 2's tests.
 
 - [ ] **Step 12: Commit**
@@ -1136,7 +1137,7 @@ Three things here must be checked against the headers rather than trusted from t
 
 - [ ] **Step 7: Build for Saturn**
 
-Run: `cd saturn && make`
+Run: `saturn/compile.bat release`
 Expected: builds clean. If `BUP_Init`'s first argument type mismatches, take the form from the active `#if` branch in `sega_bup.h:98-101`.
 
 - [ ] **Step 8: Verify the work buffer does not collide**
@@ -1427,7 +1428,7 @@ Expected: PASS — all four suites.
 
 - [ ] **Step 7: Build for Saturn**
 
-Run: `cd saturn && make`
+Run: `saturn/compile.bat release`
 Expected: builds clean. `savedata.cxx` is picked up automatically by the `find src/` glob.
 
 - [ ] **Step 8: Commit**
@@ -1462,7 +1463,7 @@ In `saturn/src/sys.h:42-43`, delete `bool save, load;` and `int8_t stateSlot;`.
 
 - [ ] **Step 2: Build to confirm nothing else referenced them**
 
-Run: `cd saturn && make`
+Run: `saturn/compile.bat release`
 Expected: builds clean. If a reference remains, it is in `saturn/host/sysImplementation.cxx`, which is not in the build — leave it alone.
 
 - [ ] **Step 3: Replace `makeGameStateName` / `saveGameState` / `loadGameState`**
@@ -1545,7 +1546,7 @@ Leave `Engine::run` alone for now — Task 8 rewrites it. To keep the build runn
 
 - [ ] **Step 5: Build and run on target**
 
-Run: `cd saturn && make`
+Run: `saturn/compile.bat release`
 Then boot `saturn/BuildDrop/` in Mednafen (`saturn/run_with_mednafen.bat`).
 Expected: the game boots into the intro exactly as before. Nothing visible has changed yet — this step is confirming the refactor is inert.
 
@@ -1624,7 +1625,7 @@ In `saturn/src/system/saturn_system.cxx:72-88`, inside `processEvents`:
 
 - [ ] **Step 5: Build and check gameplay is unchanged**
 
-Run: `cd saturn && make`, then boot in Mednafen.
+Run: `saturn/compile.bat release`, then boot in Mednafen.
 Expected: the intro plays and run/shoot still respond to A, B and C. `SAT_PAD_ACTION` is still the union, so nothing in `vm.cxx` sees a difference.
 
 - [ ] **Step 6: Commit**
@@ -2054,7 +2055,7 @@ Expected: PASS — all five suites.
 
 - [ ] **Step 7: Build for Saturn**
 
-Run: `cd saturn && make`
+Run: `saturn/compile.bat release`
 Expected: builds clean.
 
 - [ ] **Step 8: Commit**
@@ -2287,7 +2288,7 @@ Expected: PASS — all six suites.
 
 - [ ] **Step 6: Build for Saturn**
 
-Run: `cd saturn && make`
+Run: `saturn/compile.bat release`
 Expected: builds clean.
 
 - [ ] **Step 7: Commit**
@@ -2391,7 +2392,7 @@ void Engine::run() {
 
 - [ ] **Step 5: Build**
 
-Run: `cd saturn && make`
+Run: `saturn/compile.bat release`
 Expected: builds clean.
 
 - [ ] **Step 6: Verify on target**
