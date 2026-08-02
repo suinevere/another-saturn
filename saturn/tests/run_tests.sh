@@ -48,4 +48,9 @@ g++ $OWN_FLAGS -I../src \
     -o run_tests_menudraw test_menu_draw.cxx ../src/menu_draw.cxx
 ./run_tests_menudraw
 
+echo "== page rle =="
+g++ $OWN_FLAGS -I../src \
+    -o run_tests_pagerle test_page_rle.cxx ../src/page_rle.cxx
+./run_tests_pagerle
+
 echo "all suites passed"

@@ -23,6 +23,7 @@
 #include "parts.h"
 #include "savedata.h"
 #include "menu.h"
+#include "page_rle.h"
 
 Engine::Engine(System *paramSys, const char *dataDir, const char *saveDir)
 	: sys(paramSys), vm(&mixer, &res, &player, &video, sys), mixer(sys), res(&video, dataDir),
@@ -112,8 +113,8 @@ void Engine::finish() {
 /*----------------------
  | s_saveBuf
  | Description: Staging buffer for one save's worth of bytes, shared by
- |   saveSlot and loadSlot. Static because SAVE_MAX_BYTES on the stack is a
- |   2 KB frame the SH-2 cannot afford; sharing it is safe because the engine
+ |   saveSlot and loadSlot. Static because SAVE_MAX_BYTES on the stack is an 8 KB
+ |   frame the SH-2 cannot afford; sharing it is safe because the engine
  |   is single-threaded and neither function re-enters.
  | Author: suinevere
  ----------------------*/
@@ -154,9 +155,19 @@ bool Engine::saveSlot(uint32_t device, int slot) {
 		return false;
 	}
 
+	const int32_t framePos = (int32_t)(SAVE_HEADER_SIZE + f.tell()) + 4;
+	int32_t frameLen = pageRleEncode(video._curPagePtr2, Video::VID_PAGE_SIZE,
+	                                 s_saveBuf + framePos,
+	                                 (int32_t)sizeof(s_saveBuf) - framePos);
+	if (frameLen < 0) {
+		frameLen = 0;
+	}
+	f.writeUint16BE((uint16_t)(frameLen > 0 ? 1 : 0));
+	f.writeUint16BE((uint16_t)frameLen);
+
 	char name[12];
 	savedataSlotName(slot, name);
-	const int32_t total = (int32_t)(SAVE_HEADER_SIZE + f.tell());
+	const int32_t total = (int32_t)(SAVE_HEADER_SIZE + f.tell()) + frameLen;
 	_lastSaveError = sat_bup_write(device, name, "ANOTHERWLD", s_saveBuf, total, 1);
 	return _lastSaveError == SAT_BUP_OK;
 }
@@ -203,6 +214,19 @@ bool Engine::loadSlot(uint32_t device, int slot) {
 	if (f.ioErr()) {
 		_lastSaveError = SAT_BUP_ERR_BROKEN;
 		return false;
+	}
+
+	const uint16_t hasFrame = f.readUint16BE();
+	const uint16_t frameLen = f.readUint16BE();
+	if (!f.ioErr() && hasFrame != 0 && frameLen != 0) {
+		const int32_t framePos = (int32_t)(SAVE_HEADER_SIZE + f.tell());
+		if (framePos + frameLen <= (int32_t)sizeof(s_saveBuf) &&
+		    pageRleDecode(s_saveBuf + framePos, frameLen, video._pages[0],
+		                  Video::VID_PAGE_SIZE)) {
+			for (int i = 1; i < 4; ++i) {
+				memcpy(video._pages[i], video._pages[0], Video::VID_PAGE_SIZE);
+			}
+		}
 	}
 
 	_lastSaveError = SAT_BUP_OK;

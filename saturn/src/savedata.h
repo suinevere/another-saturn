@@ -22,7 +22,7 @@
 enum {
 	SAVE_NUM_SLOTS   = 3,
 	SAVE_HEADER_SIZE = 48,
-	SAVE_MAX_BYTES   = 2048
+	SAVE_MAX_BYTES   = 8192
 };
 
 /*----------------------
