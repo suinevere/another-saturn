@@ -21,10 +21,11 @@
 #include "serializer.h"
 #include "sys.h"
 #include "parts.h"
+#include "savedata.h"
 
 Engine::Engine(System *paramSys, const char *dataDir, const char *saveDir)
-	: sys(paramSys), vm(&mixer, &res, &player, &video, sys), mixer(sys), res(&video, dataDir), 
-	player(&mixer, &res, sys), video(&res, sys), _dataDir(dataDir), _saveDir(saveDir), _stateSlot(0) {
+	: sys(paramSys), vm(&mixer, &res, &player, &video, sys), mixer(sys), res(&video, dataDir),
+	player(&mixer, &res, sys), video(&res, sys), _dataDir(dataDir), _saveDir(saveDir), _lastSaveError(SAT_BUP_OK) {
 }
 
 void Engine::run() {
@@ -34,8 +35,6 @@ void Engine::run() {
 		vm.checkThreadRequests();
 
 		vm.inp_updatePlayer();
-
-		processInput();
 
 		vm.hostFrame();
 	}
@@ -56,6 +55,10 @@ void Engine::init() {
 	//Init system
 	sys->init("Out Of This World");
 
+#ifdef __sh__
+	sat_bup_init();
+#endif
+
 	video.init();
 
 	res.allocMemBlock();
@@ -68,24 +71,7 @@ void Engine::init() {
 
 	player.init();
 
-	uint16_t part = GAME_PART1;  // This game part is the protection screen
-#ifdef BYPASS_PROTECTION
-  part = GAME_PART2;
-#endif
-  vm.initForPart(part);
-
-
-
-  // Try to cheat here. You can jump anywhere but the VM crashes afterward.
-	// Starting somewhere is probably not enough, the variables and calls return are probably missing.
-	//vm.initForPart(GAME_PART2); // Skip protection screen and go directly to intro
-	//vm.initForPart(GAME_PART3); // CRASH
-	//vm.initForPart(GAME_PART4); // Start directly in jail but then crash
-	//vm.initForPart(GAME_PART5);   //CRASH
-	//vm.initForPart(GAME_PART6);   // Start in the battlechar but CRASH afteward
-	//vm.initForPart(GAME_PART7); //CRASH
-	//vm.initForPart(GAME_PART8); //CRASH
-	//vm.initForPart(GAME_PART9); // Green screen not doing anything
+	startNewGame();
 }
 
 void Engine::finish() {
@@ -94,89 +80,117 @@ void Engine::finish() {
 	res.freeMemBlock();
 }
 
-void Engine::processInput() {
-	if (sys->input.load) {
-		loadGameState(_stateSlot);
-		sys->input.load = false;
+/*----------------------
+ | s_saveBuf
+ | Description: Staging buffer for one save's worth of bytes, shared by
+ |   saveSlot and loadSlot. Static because SAVE_MAX_BYTES on the stack is a
+ |   2 KB frame the SH-2 cannot afford; sharing it is safe because the engine
+ |   is single-threaded and neither function re-enters.
+ | Author: suinevere
+ ----------------------*/
+static uint8_t s_saveBuf[SAVE_MAX_BYTES];
+
+/*----------------------
+ | Engine::saveSlot
+ | Description: Serialises the engine into the staging buffer and writes it to
+ |   a backup RAM slot. The order of the saveOrLoad calls is the save format;
+ |   do not reorder them.
+ | Author: suinevere
+ | Dependencies: savedata.h, saturn_backup.h, serializer.h
+ | Globals: s_saveBuf
+ | Params: device -- SAT_BUP_INTERNAL or SAT_BUP_CART; slot -- 0 to 2
+ | Returns: false on a backup error, with lastSaveError set
+ ----------------------*/
+bool Engine::saveSlot(uint32_t device, int slot) {
+	memset(s_saveBuf, 0, sizeof(s_saveBuf));
+
+	const uint32_t date = sat_bup_date_now();
+	savedataWriteHeader(s_saveBuf, res.currentPartId, date);
+
+	File f;
+	f.openMemory(s_saveBuf + SAVE_HEADER_SIZE, sizeof(s_saveBuf) - SAVE_HEADER_SIZE, true);
+	Serializer s(&f, Serializer::SM_SAVE, res._memPtrStart);
+	vm.saveOrLoad(s);
+	res.saveOrLoad(s);
+	video.saveOrLoad(s);
+	player.saveOrLoad(s);
+	mixer.saveOrLoad(s);
+
+	if (f.ioErr()) {
+		_lastSaveError = SAT_BUP_ERR_NO_SPACE;
+		return false;
 	}
-	if (sys->input.save) {
-		saveGameState(_stateSlot, "quicksave");
-		sys->input.save = false;
-	}
-	if (sys->input.stateSlot != 0) {
-		int8_t slot = _stateSlot + sys->input.stateSlot;
-		if (slot >= 0 && slot < MAX_SAVE_SLOTS) {
-			_stateSlot = slot;
-			debug(DBG_INFO, "Current game state slot is %d", _stateSlot);
-		}
-		sys->input.stateSlot = 0;
-	}
+
+	char name[12];
+	savedataSlotName(slot, name);
+	const int32_t total = (int32_t)(SAVE_HEADER_SIZE + s._bytesCount);
+	_lastSaveError = sat_bup_write(device, name, "ANOTHERWLD", s_saveBuf, total, 1);
+	return _lastSaveError == SAT_BUP_OK;
 }
 
-void Engine::makeGameStateName(uint8_t slot, char *buf) {
-	sprintf(buf, "raw.s%02d", slot);
+/*----------------------
+ | Engine::loadSlot
+ | Description: Reads a backup RAM slot into the staging buffer and
+ |   deserialises it into the engine. Mutes audio before touching state, and
+ |   refuses anything but the current save format version.
+ | Author: suinevere
+ | Dependencies: savedata.h, saturn_backup.h, serializer.h
+ | Globals: s_saveBuf
+ | Params: device -- SAT_BUP_INTERNAL or SAT_BUP_CART; slot -- 0 to 2
+ | Returns: false on a backup error, a version mismatch, or an I/O error, with
+ |   lastSaveError set
+ ----------------------*/
+bool Engine::loadSlot(uint32_t device, int slot) {
+	char name[12];
+	savedataSlotName(slot, name);
+	_lastSaveError = sat_bup_read(device, name, s_saveBuf, sizeof(s_saveBuf));
+	if (_lastSaveError != SAT_BUP_OK) {
+		return false;
+	}
+
+	uint16_t ver, partId;
+	uint32_t date;
+	if (!savedataReadHeader(s_saveBuf, &ver, &partId, &date) || ver != Serializer::CUR_VER) {
+		_lastSaveError = SAT_BUP_ERR_BROKEN;
+		return false;
+	}
+
+	player.stop();
+	mixer.stopAll();
+
+	File f;
+	f.openMemory(s_saveBuf + SAVE_HEADER_SIZE, sizeof(s_saveBuf) - SAVE_HEADER_SIZE, false);
+	Serializer s(&f, Serializer::SM_LOAD, res._memPtrStart, ver);
+	vm.saveOrLoad(s);
+	res.saveOrLoad(s);
+	video.saveOrLoad(s);
+	player.saveOrLoad(s);
+	mixer.saveOrLoad(s);
+
+	if (f.ioErr()) {
+		_lastSaveError = SAT_BUP_ERR_BROKEN;
+		return false;
+	}
+
+	_lastSaveError = SAT_BUP_OK;
+	return true;
 }
 
-void Engine::saveGameState(uint8_t slot, const char *desc) {
-	char stateFile[20];
-	makeGameStateName(slot, stateFile);
-	File f(true);
-	if (!f.open(stateFile, _saveDir, "wb")) {
-		warning("Unable to save state file '%s'", stateFile);
-	} else {
-		// header
-		f.writeUint32BE('AWSV');
-		f.writeUint16BE(Serializer::CUR_VER);
-		f.writeUint16BE(0);
-		char hdrdesc[32];
-		strncpy(hdrdesc, desc, sizeof(hdrdesc) - 1);
-		f.write(hdrdesc, sizeof(hdrdesc));
-		// contents
-		Serializer s(&f, Serializer::SM_SAVE, res._memPtrStart);
-		vm.saveOrLoad(s);
-		res.saveOrLoad(s);
-		video.saveOrLoad(s);
-		player.saveOrLoad(s);
-		mixer.saveOrLoad(s);
-		if (f.ioErr()) {
-			warning("I/O error when saving game state");
-		} else {
-			debug(DBG_INFO, "Saved state to slot %d", _stateSlot);
-		}
-	}
-}
-
-void Engine::loadGameState(uint8_t slot) {
-	char stateFile[20];
-	makeGameStateName(slot, stateFile);
-	File f(true);
-	if (!f.open(stateFile, _saveDir, "rb")) {
-		warning("Unable to open state file '%s'", stateFile);
-	} else {
-		uint32_t id = f.readUint32BE();
-		if (id != 'AWSV') {
-			warning("Bad savegame format");
-		} else {
-			// mute
-			player.stop();
-			mixer.stopAll();
-			// header
-			uint16_t ver = f.readUint16BE();
-			f.readUint16BE();
-			char hdrdesc[32];
-			f.read(hdrdesc, sizeof(hdrdesc));
-			// contents
-			Serializer s(&f, Serializer::SM_LOAD, res._memPtrStart, ver);
-			vm.saveOrLoad(s);
-			res.saveOrLoad(s);
-			video.saveOrLoad(s);
-			player.saveOrLoad(s);
-			mixer.saveOrLoad(s);
-		}
-		if (f.ioErr()) {
-			warning("I/O error when loading game state");
-		} else {
-			debug(DBG_INFO, "Loaded state from slot %d", _stateSlot);
-		}
-	}
+/*----------------------
+ | Engine::startNewGame
+ | Description: Begins a fresh run at the intro. BYPASS_PROTECTION selects the
+ |   intro over the copy-protection wheel, which is unplayable without the
+ |   physical code wheel.
+ | Author: suinevere
+ | Dependencies: parts.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void Engine::startNewGame() {
+#ifdef BYPASS_PROTECTION
+	vm.initForPart(GAME_PART2);
+#else
+	vm.initForPart(GAME_PART1);
+#endif
 }
