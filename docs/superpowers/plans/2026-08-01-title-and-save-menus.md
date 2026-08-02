@@ -1142,7 +1142,9 @@ Expected: builds clean. If `BUP_Init`'s first argument type mismatches, take the
 
 - [ ] **Step 8: Verify the work buffer does not collide**
 
-This is the spec's first Known Risk. Check the link map in `saturn/BuildDrop/` for the address of `s_bupWork` and confirm it does not fall inside the 600 KB resource block. If it does, move it into High Work RAM explicitly.
+This is the spec's first Known Risk, and the risk as originally worded had the two RAM banks backwards. `saturn_compat.cxx:23-24` is authoritative: `0x06000000` is **High** Work RAM, `0x00200000` is **Low**.
+
+Measured: `s_bupWork` links to `0x06022484`–`0x06024484` and `s_bupCfg` to `0x06022478`, both `.bss` statics in High Work RAM. The 600 KB resource block is not a static — `Resource::allocMemBlock` takes it from `sat_malloc_low` (`saturn_compat.cxx:82-85`), which routes to `SRL::Memory::LowWorkRam`. Different physical 1 MB banks, so no overlap is possible at any offset. Resolved; no action needed.
 
 Record the finding in the commit or in the task report — a later task depends on this being settled.
 

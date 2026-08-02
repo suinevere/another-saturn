@@ -380,10 +380,19 @@ stubbed for the host build.
 
 ## Known risks
 
-**BUP work buffer placement.** `BUP_Init` needs a work area, and the BIOS backup
-library lives in Low Work RAM from `0x6000000`, which is also where the 600 KB
-resource block sits. Verify there is no overlap before wiring it up; if there
-is, move the work buffer to High Work RAM.
+**BUP work buffer placement — resolved, and this entry was wrong.** It claimed
+the 600 KB resource block lives in Low Work RAM "from `0x6000000`", which has the
+two banks backwards: `saturn_compat.cxx:23-24` documents `0x06000000` as **High**
+Work RAM and `0x00200000` as Low.
+
+Measured at Task 2: `s_bupWork` links to `0x06022484`–`0x06024484` and `s_bupCfg`
+to `0x06022478`, both `.bss` statics in High Work RAM. The resource block is not a
+static at all — `Resource::allocMemBlock` takes it from `sat_malloc_low`
+(`saturn_compat.cxx:82-85`), which routes unconditionally to
+`SRL::Memory::LowWorkRam` at `0x00200000`. They are different physical 1 MB banks,
+so no overlap is possible at any offset. The only thing left to watch is High Work
+RAM's shared budget — program image, video pages, TLSF heap, and this ~8.2 KB —
+and the build links without a region overflow.
 
 **Menu page allocation.** The 32 KB compositing page is one more High Work RAM
 allocation alongside the existing video pages. Confirm the budget before adding
