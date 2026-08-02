@@ -30,12 +30,14 @@ SaturnRingLib/tools/bin/
 # --- Host/IDE build dirs -----------------------------------------------------
 cmake-build-*/
 
-# --- Host unit-test binary ---------------------------------------------------
-# saturn/tests/run_tests.sh builds this with the host g++ (not the SH-2 cross
-# compiler) so the pure SCSP voice maths can be tested off-target. A build
+# --- Host unit-test binaries --------------------------------------------------
+# saturn/tests/run_tests.sh builds these with the host g++ (not the SH-2 cross
+# compiler), one binary per suite, so each area can be tested off-target. Build
 # output, not source. Both spellings: MSYS g++ emits .exe on Windows.
-saturn/tests/run_tests
-saturn/tests/run_tests.exe
+saturn/tests/run_tests_scsp
+saturn/tests/run_tests_scsp.exe
+saturn/tests/run_tests_savefmt
+saturn/tests/run_tests_savefmt.exe
 
 # --- Non-free game data ------------------------------------------------------
 # Another World's original PC DOS data files. Required to run, never committed.

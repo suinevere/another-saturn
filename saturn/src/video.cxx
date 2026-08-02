@@ -607,15 +607,20 @@ void Video::saveOrLoad(Serializer &ser) {
 		SE_INT(&currentPaletteId, Serializer::SES_INT8, VER(1)),
 		SE_INT(&paletteIdRequested, Serializer::SES_INT8, VER(1)),
 		SE_INT(&mask, Serializer::SES_INT8, VER(1)),
-		SE_ARRAY(_pages[0], Video::VID_PAGE_SIZE, Serializer::SES_INT8, VER(1)),
-		SE_ARRAY(_pages[1], Video::VID_PAGE_SIZE, Serializer::SES_INT8, VER(1)),
-		SE_ARRAY(_pages[2], Video::VID_PAGE_SIZE, Serializer::SES_INT8, VER(1)),
-		SE_ARRAY(_pages[3], Video::VID_PAGE_SIZE, Serializer::SES_INT8, VER(1)),
+		{ Serializer::SET_ARRAY, Serializer::SES_INT8, Video::VID_PAGE_SIZE, _pages[0], 1, 2 },
+		{ Serializer::SET_ARRAY, Serializer::SES_INT8, Video::VID_PAGE_SIZE, _pages[1], 1, 2 },
+		{ Serializer::SET_ARRAY, Serializer::SES_INT8, Video::VID_PAGE_SIZE, _pages[2], 1, 2 },
+		{ Serializer::SET_ARRAY, Serializer::SES_INT8, Video::VID_PAGE_SIZE, _pages[3], 1, 2 },
 		SE_END()
 	};
 	ser.saveOrLoadEntries(entries);
 
 	if (ser._mode == Serializer::SM_LOAD) {
+		if (ser._saveVer >= 3) {
+			for (int i = 0; i < 4; ++i) {
+				memset(_pages[i], 0, Video::VID_PAGE_SIZE);
+			}
+		}
 		_curPagePtr1 = _pages[(mask >> 4) & 0x3];
 		_curPagePtr2 = _pages[(mask >> 2) & 0x3];
 		_curPagePtr3 = _pages[(mask >> 0) & 0x3];

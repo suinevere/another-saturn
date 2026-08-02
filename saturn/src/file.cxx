@@ -40,6 +40,54 @@ struct File_impl {
 	virtual void write(void *ptr, uint32_t size) = 0;
 };
 
+/*----------------------
+ | memFile
+ | Description: A File_impl over a caller-owned byte buffer. Reads and writes
+ |   past the end set _ioErr rather than touching memory, which is what
+ |   Engine's existing ioErr check already looks for.
+ | Author: suinevere
+ | Dependencies: N/A
+ ----------------------*/
+struct memFile : File_impl {
+	uint8_t *_buf;
+	uint32_t _size;
+	uint32_t _pos;
+	bool _write;
+
+	memFile(uint8_t *buf, uint32_t size, bool write)
+		: _buf(buf), _size(size), _pos(0), _write(write) {}
+
+	bool open(const char *path, const char *mode) {
+		(void)path;
+		(void)mode;
+		return true;
+	}
+	void close() {}
+	void seek(int32_t off) {
+		if (off >= 0 && (uint32_t)off <= _size) {
+			_pos = (uint32_t)off;
+		} else {
+			_ioErr = true;
+		}
+	}
+	void read(void *ptr, uint32_t size) {
+		if (_pos + size > _size) {
+			_ioErr = true;
+			return;
+		}
+		memcpy(ptr, _buf + _pos, size);
+		_pos += size;
+	}
+	void write(void *ptr, uint32_t size) {
+		if (!_write || _pos + size > _size) {
+			_ioErr = true;
+			return;
+		}
+		memcpy(_buf + _pos, ptr, size);
+		_pos += size;
+	}
+};
+
 struct stdFile : File_impl {
 	FILE *_fp;
 	stdFile() : _fp(0) {}
@@ -204,6 +252,23 @@ bool File::open(const char *filename, const char *directory, const char *mode) {
 		opened = _impl->open(buf, mode);
 	}
 	return opened;
+}
+
+/*----------------------
+ | File::openMemory
+ | Description: Swaps this File's impl for one backed by a caller-owned buffer.
+ | Author: suinevere
+ | Params: buf -- the buffer; size -- its length; write -- true to write
+ | Returns: false for a null buffer or a zero size, leaving the old impl in place
+ ----------------------*/
+bool File::openMemory(void *buf, uint32_t size, bool write) {
+	if (buf == 0 || size == 0) {
+		return false;
+	}
+	_impl->close();
+	delete _impl;
+	_impl = new memFile((uint8_t *)buf, size, write);
+	return true;
 }
 
 void File::close() {

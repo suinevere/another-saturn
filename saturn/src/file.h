@@ -30,6 +30,16 @@ struct File {
 	virtual ~File();
 
 	bool open(const char *filename, const char *directory, const char *mode="rb");
+	/*----------------------
+	 | openMemory
+	 | Description: Points this File at a caller-owned buffer instead of a file,
+	 |   so the serialiser can write a save into a staging buffer bound for
+	 |   backup RAM. Replaces any impl already installed.
+	 | Author: suinevere
+	 | Params: buf -- the buffer; size -- its length; write -- true to write
+	 | Returns: false for a null buffer or a zero size
+	 ----------------------*/
+	bool openMemory(void *buf, uint32_t size, bool write);
 	void close();
 	bool ioErr() const;
 	void seek(int32_t off);

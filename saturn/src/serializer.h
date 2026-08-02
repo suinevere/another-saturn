@@ -32,7 +32,7 @@ struct File;
 
 struct Serializer {
 	enum {
-		CUR_VER = 2
+		CUR_VER = 3
 	};
 
 	enum EntryType {
