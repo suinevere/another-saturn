@@ -34,6 +34,11 @@ cmake-build-*/
 # Mockups the design companion serves to the browser. Working material, not source.
 .superpowers/
 
+# --- Python bytecode ---------------------------------------------------------
+# tools/mkmenuart.py and mkchromestrings.py leave this behind whenever the menu
+# artwork is regenerated.
+tools/__pycache__/
+
 # --- Host unit-test binaries --------------------------------------------------
 # saturn/tests/run_tests.sh builds these with the host g++ (not the SH-2 cross
 # compiler), one binary per suite, so each area can be tested off-target. Build
