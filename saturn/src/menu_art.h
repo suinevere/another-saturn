@@ -1,9 +1,8 @@
 /*----------------------
  | menu_art.h
- | Description: The menu's artwork, packed by tools/mkmenuart.py. The logo and
- |   bolts carry absolute palette indices because they never change colour; the
- |   two strings carry relative shades because they render in both the selected
- |   and the unselected ramp.
+ | Description: The menu's artwork, packed by tools/mkmenuart.py, with the logo
+ |   and bolts in absolute palette indices and the two strings in relative
+ |   shades so they can render in either ramp.
  | Author: suinevere
  | Dependencies: menu_blit.h
  ----------------------*/

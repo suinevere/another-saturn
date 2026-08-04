@@ -1,10 +1,9 @@
 /*----------------------
  | menu_blit.h
- | Description: Blits packed artwork into a raw 4bpp page. Two formats: 4bpp
- |   holding absolute palette indices for art that never changes colour, and
- |   2bpp holding a relative shade for art that must render in more than one
- |   ramp. Index 0 is transparent in both. No engine dependency, so the packing
- |   arithmetic is host-testable the same way menu_draw.h is.
+ | Description: Blits packed artwork into a raw 4bpp page, in two formats --
+ |   absolute-index 4bpp for art that never changes colour and relative-shade
+ |   2bpp for art that must render in more than one ramp -- with index 0
+ |   transparent in both.
  | Author: suinevere
  | Dependencies: stdint.h
  ----------------------*/
