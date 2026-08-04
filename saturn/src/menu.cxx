@@ -515,21 +515,25 @@ static void menuDrawConfirmScreen(uint8_t *page, const MenuState *st) {
 /*----------------------
  | menuRenderFrame
  | Description: Redraws whichever screen the state is on and presents it. When
- |   overlaying, the backdrop is re-copied first: the VM is frozen while a menu
- |   is up, so its front page stays valid as the source and the menu needs no
- |   second full-page buffer of its own.
+ |   overlaying, the backdrop is re-copied and remapped only when the caller
+ |   says the panel geometry may have changed since the last frame -- the
+ |   frozen frame and its palette are invariant for the whole pause session, so
+ |   paying the 32000-byte remap on every unchanged frame buys nothing; each
+ |   screen's draw function fills its own panel before drawing text, so
+ |   skipping the recopy does not let text accumulate within a screen.
  | Author: suinevere
  | Params: page -- compositing page; sys -- for the present call; st -- state;
  |   statusError -- last failure to report; overlay -- true to composite over
- |   the frozen frame; backdrop -- that frame, or NULL when not overlaying;
- |   freezePal -- the game palette the backdrop was drawn against, or NULL when
- |   not overlaying
+ |   the frozen frame; refreshBackdrop -- true to re-copy and remap the
+ |   backdrop this call, ignored when overlay is false; backdrop -- that frame,
+ |   or NULL when not overlaying; freezePal -- the game palette the backdrop
+ |   was drawn against, or NULL when not overlaying
  | Returns: N/A
  ----------------------*/
 static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
-                            int statusError, bool overlay,
+                            int statusError, bool overlay, bool refreshBackdrop,
                             const uint8_t *backdrop, const uint8_t *freezePal) {
-	if (overlay) {
+	if (overlay && refreshBackdrop) {
 		memcpy(page, backdrop, MENU_PAGE_SIZE);
 		menuFreezeRemap(page, freezePal);
 	}
@@ -709,6 +713,8 @@ bool Menu::runTitle() {
 	menuRenderTitleFrame(_page, _sys, &_st, _boltIndex, _boltFrame);
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
+	MenuScreen lastScreen = _st.screen;
+
 	while (!_sys->input.quit) {
 		MenuInput in;
 		menuPollEdges(_sys, &_prevPad, &_repeatTimer, &in);
@@ -730,8 +736,16 @@ bool Menu::runTitle() {
 			menuRescan(&_st);
 		}
 
-		titleAnimate();
-		menuRenderTitleFrame(_page, _sys, &_st, _boltIndex, _boltFrame);
+		if (_st.screen == MENU_TITLE) {
+			titleAnimate();
+			menuRenderTitleFrame(_page, _sys, &_st, _boltIndex, _boltFrame);
+		} else {
+			if (lastScreen == MENU_TITLE) {
+				_sys->setPalette(MENU_ART_PALETTE);
+			}
+			menuRenderFrame(_page, _sys, &_st, _statusError, false, false, 0, 0);
+		}
+		lastScreen = _st.screen;
 	}
 
 	return false;
@@ -747,11 +761,11 @@ bool Menu::runPause() {
 	_engine->mixer.stopAll();
 
 	sat_video_get_palette(_savedPal);
-	memcpy(_page, backdrop, MENU_PAGE_SIZE);
-	menuFreezeRemap(_page, _savedPal);
 	_sys->setPalette(MENU_ART_PALETTE);
 
-	menuRenderFrame(_page, _sys, &_st, _statusError, true, backdrop, _savedPal);
+	MenuScreen lastScreen = MENU_NONE;
+	menuRenderFrame(_page, _sys, &_st, _statusError, true, true, backdrop, _savedPal);
+	lastScreen = _st.screen;
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
 	bool resume = true;
@@ -787,7 +801,9 @@ bool Menu::runPause() {
 			menuRescan(&_st);
 		}
 
-		menuRenderFrame(_page, _sys, &_st, _statusError, true, backdrop, _savedPal);
+		const bool refreshBackdrop = (_st.screen != lastScreen);
+		menuRenderFrame(_page, _sys, &_st, _statusError, true, refreshBackdrop, backdrop, _savedPal);
+		lastScreen = _st.screen;
 	}
 
 	if (!paletteOwnedByLoad) {
