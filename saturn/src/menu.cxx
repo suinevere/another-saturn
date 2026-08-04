@@ -6,8 +6,8 @@
  |   logic lives in menu_state.cxx and the pixels in menu_draw.cxx; this file is
  |   the glue that owns the page, talks to Engine, and reads backup RAM.
  | Author: suinevere
- | Dependencies: menu.h, engine.h, sys.h, video.h, menu_draw.h, savedata.h,
- |   saturn_backup.h, saturn_platform.h
+ | Dependencies: menu.h, engine.h, sys.h, video.h, menu_draw.h, menu_blit.h,
+ |   menu_art.h, savedata.h, saturn_backup.h, saturn_platform.h
  | Globals: s_menuPage
  ----------------------*/
 #include "menu.h"
@@ -15,6 +15,8 @@
 #include "sys.h"
 #include "video.h"
 #include "menu_draw.h"
+#include "menu_blit.h"
+#include "menu_art.h"
 #include "savedata.h"
 #include "saturn_backup.h"
 #include "saturn_platform.h"
@@ -33,17 +35,18 @@ extern "C" {
 static uint8_t s_menuPage[MENU_PAGE_SIZE];
 
 /*----------------------
- | MENU_COL_TEXT / MENU_COL_PANEL
- | Description: Palette indices the menu draws with. Text is always index 15
- |   because the pause overlay dims every entry except that one, so a single
- |   bright index is the only colour that reads correctly over both the menu's
- |   own palette and a dimmed game palette. Selection is shown by the cursor
- |   glyph rather than a second colour, for the same reason.
+ | MENU_BASE_DIM / MENU_BASE_SEL / MENU_COL_PANEL / MENU_COL_BORDER
+ | Description: Palette indices the menu draws with. Selection is a base index
+ |   rather than a second colour: the same artwork renders unselected at base 8
+ |   and selected at base 12, and only entries 12..14 are rewritten to pulse, so
+ |   the logo at base 4 stays still.
  | Author: suinevere
  ----------------------*/
 enum {
-	MENU_COL_TEXT  = 15,
-	MENU_COL_PANEL = 0
+	MENU_BASE_DIM    = 8,
+	MENU_BASE_SEL    = 12,
+	MENU_COL_PANEL   = 0,
+	MENU_COL_BORDER  = 7
 };
 
 /*----------------------
@@ -76,21 +79,6 @@ enum {
 	MENU_PAD_NAV     = MENU_PAD_UP | MENU_PAD_DOWN | MENU_PAD_LEFT | MENU_PAD_RIGHT,
 	MENU_PAD_EDGE    = MENU_PAD_CONFIRM | MENU_PAD_CANCEL | MENU_PAD_PAUSE |
 	                   MENU_PAD_L | MENU_PAD_R
-};
-
-/*----------------------
- | s_titlePalette
- | Description: The palette the title card installs, since no game part is
- |   loaded at that point and the engine has not set one. Two bytes per entry,
- |   four bits per channel: R = byte0 & 0x0F, G = (byte1 & 0xF0) >> 4,
- |   B = byte1 & 0x0F. Only index 0 (black) and index 15 (white) are used.
- | Author: suinevere
- ----------------------*/
-static const uint8_t s_titlePalette[32] = {
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0xFF
 };
 
 /*----------------------
@@ -410,19 +398,20 @@ static void menuRescan(MenuState *st) {
 
 /*----------------------
  | menuDrawTitleScreen
- | Description: Paints the title card: the game name and the two entry points.
+ | Description: Paints the title card: the wordmark and the two entry points.
+ |   The selected row is drawn from the strobe ramp rather than marked with a
+ |   cursor glyph, which is how the Mega Drive screen shows it.
  | Author: suinevere
  | Params: page -- compositing page; st -- state, for the cursor position
  | Returns: N/A
  ----------------------*/
 static void menuDrawTitleScreen(uint8_t *page, const MenuState *st) {
-	const uint8_t *font = Video::_font;
-
 	memset(page, 0, MENU_PAGE_SIZE);
-	menuDrawText(page, font, 13, 56, MENU_COL_TEXT, "ANOTHER  WORLD");
-	menuDrawText(page, font, 16, 104, MENU_COL_TEXT, "START GAME");
-	menuDrawText(page, font, 16, 120, MENU_COL_TEXT, "LOAD GAME");
-	menuDrawText(page, font, 14, 104 + st->cursor * 16, MENU_COL_TEXT, ">");
+	menuBlit4bpp(page, &MENU_ART_LOGO, 15, 30);
+	menuBlit2bpp(page, &MENU_ART_START_GAME, 84, 128,
+	             st->cursor == 0 ? MENU_BASE_SEL : MENU_BASE_DIM);
+	menuBlit2bpp(page, &MENU_ART_LOAD_GAME, 84, 152,
+	             st->cursor == 1 ? MENU_BASE_SEL : MENU_BASE_DIM);
 }
 
 /*----------------------
@@ -437,11 +426,11 @@ static void menuDrawPauseScreen(uint8_t *page, const MenuState *st) {
 	const uint8_t *font = Video::_font;
 
 	menuDrawFill(page, 80, 48, 168, 96, MENU_COL_PANEL);
-	menuDrawText(page, font, 13, 60, MENU_COL_TEXT, "RESUME");
-	menuDrawText(page, font, 13, 76, MENU_COL_TEXT, "SAVE GAME");
-	menuDrawText(page, font, 13, 92, MENU_COL_TEXT, "LOAD GAME");
-	menuDrawText(page, font, 13, 108, MENU_COL_TEXT, "RETURN TO MENU");
-	menuDrawText(page, font, 11, 60 + st->cursor * 16, MENU_COL_TEXT, ">");
+	menuDrawText(page, font, 13, 60, st->cursor == 0 ? MENU_BASE_SEL : MENU_BASE_DIM, "RESUME");
+	menuDrawText(page, font, 13, 76, st->cursor == 1 ? MENU_BASE_SEL : MENU_BASE_DIM, "SAVE GAME");
+	menuDrawText(page, font, 13, 92, st->cursor == 2 ? MENU_BASE_SEL : MENU_BASE_DIM, "LOAD GAME");
+	menuDrawText(page, font, 13, 108, st->cursor == 3 ? MENU_BASE_SEL : MENU_BASE_DIM, "RETURN TO MENU");
+	menuDrawText(page, font, 11, 60 + st->cursor * 16, MENU_BASE_SEL, ">");
 }
 
 /*----------------------
@@ -460,27 +449,28 @@ static void menuDrawSlotScreen(uint8_t *page, const MenuState *st,
 	char row[40];
 
 	menuDrawFill(page, 24, 16, 272, 168, MENU_COL_PANEL);
-	menuDrawText(page, font, 15, 24, MENU_COL_TEXT,
+	menuDrawText(page, font, 15, 24, MENU_BASE_DIM,
 	             st->saving ? "SAVE GAME" : "LOAD GAME");
 
 	if (st->cartPresent) {
-		menuDrawText(page, font, 12, 48, MENU_COL_TEXT,
+		menuDrawText(page, font, 12, 48, MENU_BASE_DIM,
 		             st->device == SAT_BUP_CART ? "L <  CARTRIDGE  > R"
 		                                        : "L <   INTERNAL  > R");
 	}
 
 	for (int i = 0; i < SAVE_NUM_SLOTS; ++i) {
 		menuSlotRow(row, (int)sizeof(row), i, &st->slots[i]);
-		menuDrawText(page, font, 7, 72 + i * 16, MENU_COL_TEXT, row);
+		menuDrawText(page, font, 7, 72 + i * 16,
+		             i == st->slotCursor ? MENU_BASE_SEL : MENU_BASE_DIM, row);
 	}
-	menuDrawText(page, font, 5, 72 + st->slotCursor * 16, MENU_COL_TEXT, ">");
+	menuDrawText(page, font, 5, 72 + st->slotCursor * 16, MENU_BASE_SEL, ">");
 
 	const char *status = menuStatusText(statusError, st->device);
 	if (status != 0) {
-		menuDrawText(page, font, 5, 136, MENU_COL_TEXT, status);
+		menuDrawText(page, font, 5, 136, MENU_BASE_DIM, status);
 	}
 
-	menuDrawText(page, font, 5, 160, MENU_COL_TEXT, "A SELECT   B BACK");
+	menuDrawText(page, font, 5, 160, MENU_BASE_DIM, "A SELECT   B BACK");
 }
 
 /*----------------------
@@ -498,8 +488,8 @@ static void menuDrawConfirmScreen(uint8_t *page, const MenuState *st) {
 	menuDrawFill(page, 40, 64, 240, 72, MENU_COL_PANEL);
 
 	if (st->pending == MENU_ACT_RETURN_TO_TITLE) {
-		menuDrawText(page, font, 7, 76, MENU_COL_TEXT, "RETURN TO MENU ?");
-		menuDrawText(page, font, 7, 92, MENU_COL_TEXT, "PROGRESS WILL BE LOST");
+		menuDrawText(page, font, 7, 76, MENU_BASE_DIM, "RETURN TO MENU ?");
+		menuDrawText(page, font, 7, 92, MENU_BASE_DIM, "PROGRESS WILL BE LOST");
 	} else {
 		char row[24];
 		int pos = 0;
@@ -508,12 +498,12 @@ static void menuDrawConfirmScreen(uint8_t *page, const MenuState *st) {
 		menuAppendChar(row, (int)sizeof(row), &pos,
 		               (char)('1' + st->slotCursor));
 		menuAppendStr(row, (int)sizeof(row), &pos, " ?");
-		menuDrawText(page, font, 7, 84, MENU_COL_TEXT, row);
+		menuDrawText(page, font, 7, 84, MENU_BASE_DIM, row);
 	}
 
-	menuDrawText(page, font, 14, 116, MENU_COL_TEXT, "YES");
-	menuDrawText(page, font, 22, 116, MENU_COL_TEXT, "NO");
-	menuDrawText(page, font, st->confirmYes ? 13 : 21, 116, MENU_COL_TEXT, ">");
+	menuDrawText(page, font, 14, 116, st->confirmYes ? MENU_BASE_SEL : MENU_BASE_DIM, "YES");
+	menuDrawText(page, font, 22, 116, st->confirmYes ? MENU_BASE_DIM : MENU_BASE_SEL, "NO");
+	menuDrawText(page, font, st->confirmYes ? 13 : 21, 116, MENU_BASE_SEL, ">");
 }
 
 /*----------------------
@@ -566,7 +556,7 @@ bool Menu::runTitle() {
 	menuStateEnterTitle(&_st);
 	_statusError = SAT_BUP_OK;
 
-	_sys->setPalette(s_titlePalette);
+	_sys->setPalette(MENU_ART_PALETTE);
 	menuRenderFrame(_page, _sys, &_st, _statusError, false, 0);
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
@@ -607,7 +597,7 @@ bool Menu::runPause() {
 	_engine->mixer.stopAll();
 
 	sat_video_get_palette(_savedPal);
-	menuDrawDimPalette(_savedPal, _dimPal, MENU_COL_TEXT);
+	menuDrawDimPalette(_savedPal, _dimPal, 15);
 	_sys->setPalette(_dimPal);
 
 	menuRenderFrame(_page, _sys, &_st, _statusError, true, backdrop);
