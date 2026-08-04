@@ -11,6 +11,7 @@
 #include <cstring>
 #include "menu_blit.h"
 #include "menu_draw.h"
+#include "menu_art.h"
 
 static int g_fail = 0;
 
@@ -140,6 +141,55 @@ static void test_blit2_odd_x_and_clip(void)
     CHECK_EQ(pixelAt(1, 0), 14);
 }
 
+static void test_strobe_endpoints(void)
+{
+    CHECK_EQ(MENU_ART_STROBE[15][0], MENU_ART_PALETTE[12 * 2]);
+    CHECK_EQ(MENU_ART_STROBE[15][1], MENU_ART_PALETTE[12 * 2 + 1]);
+    CHECK_EQ(MENU_ART_STROBE[15][2], MENU_ART_PALETTE[13 * 2]);
+    CHECK_EQ(MENU_ART_STROBE[15][3], MENU_ART_PALETTE[13 * 2 + 1]);
+    CHECK_EQ(MENU_ART_STROBE[15][4], MENU_ART_PALETTE[14 * 2]);
+    CHECK_EQ(MENU_ART_STROBE[15][5], MENU_ART_PALETTE[14 * 2 + 1]);
+
+    CHECK_EQ(MENU_ART_STROBE[0][0], 0x00);
+    CHECK_EQ(MENU_ART_STROBE[0][1], 0x66);
+    CHECK_EQ(MENU_ART_STROBE[0][2], 0x03);
+    CHECK_EQ(MENU_ART_STROBE[0][3], 0x78);
+    CHECK_EQ(MENU_ART_STROBE[0][4], 0x06);
+    CHECK_EQ(MENU_ART_STROBE[0][5], 0x88);
+}
+
+static void test_strobe_is_monotonic(void)
+{
+    for (int e = 0; e < 3; ++e) {
+        for (int l = 1; l < MENU_ART_STROBE_LEVELS; ++l) {
+            const uint8_t *prev = MENU_ART_STROBE[l - 1];
+            const uint8_t *cur  = MENU_ART_STROBE[l];
+            const int pg = (prev[e * 2 + 1] & 0xF0) >> 4;
+            const int cg = (cur[e * 2 + 1] & 0xF0) >> 4;
+            CHECK_EQ(cg >= pg, 1);
+        }
+    }
+}
+
+static void test_palette_has_sixteen_entries(void)
+{
+    CHECK_EQ(MENU_ART_PALETTE[0], 0x00);
+    CHECK_EQ(MENU_ART_PALETTE[1], 0x00);
+    CHECK_EQ(MENU_ART_PALETTE[4 * 2], 0x00);
+    CHECK_EQ(MENU_ART_PALETTE[4 * 2 + 1], 0x44);
+    CHECK_EQ(MENU_ART_PALETTE[15 * 2], 0x0F);
+    CHECK_EQ(MENU_ART_PALETTE[15 * 2 + 1], 0xFF);
+}
+
+static void test_logo_dimensions(void)
+{
+    CHECK_EQ(MENU_ART_LOGO.w, 290);
+    CHECK_EQ(MENU_ART_LOGO.h, 61);
+    CHECK_EQ(MENU_ART_BOLT[0].w, 46);
+    CHECK_EQ(MENU_ART_BOLT[0].h, 63);
+    CHECK_EQ(MENU_ART_BOLT[2].h, 40);
+}
+
 int main(void)
 {
     test_blit4_even_x();
@@ -150,6 +200,10 @@ int main(void)
     test_blit2_bases_differ_by_four();
     test_blit2_shade0_is_transparent();
     test_blit2_odd_x_and_clip();
+    test_strobe_endpoints();
+    test_strobe_is_monotonic();
+    test_palette_has_sixteen_entries();
+    test_logo_dimensions();
 
     if (g_fail != 0) {
         printf("%d check(s) failed\n", g_fail);

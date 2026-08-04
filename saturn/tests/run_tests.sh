@@ -50,7 +50,8 @@ g++ $OWN_FLAGS -I../src \
 
 echo "== menu art =="
 g++ $OWN_FLAGS -I../src \
-    -o run_tests_menuart test_menu_art.cxx ../src/menu_draw.cxx ../src/menu_blit.cxx
+    -o run_tests_menuart test_menu_art.cxx ../src/menu_draw.cxx \
+    ../src/menu_blit.cxx ../src/menu_art.cxx
 ./run_tests_menuart
 
 echo "== page rle =="
