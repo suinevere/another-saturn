@@ -48,6 +48,11 @@ g++ $OWN_FLAGS -I../src \
     -o run_tests_menudraw test_menu_draw.cxx ../src/menu_draw.cxx
 ./run_tests_menudraw
 
+echo "== menu art =="
+g++ $OWN_FLAGS -I../src \
+    -o run_tests_menuart test_menu_art.cxx ../src/menu_draw.cxx ../src/menu_blit.cxx
+./run_tests_menuart
+
 echo "== page rle =="
 g++ $OWN_FLAGS -I../src \
     -o run_tests_pagerle test_page_rle.cxx ../src/page_rle.cxx
