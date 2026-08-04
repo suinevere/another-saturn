@@ -87,8 +87,8 @@ static void test_short_literal_and_run_by_hand(void)
     g_page[1] = 0xF0;
 
     const uint8_t enc[] = {
-        0x01, 0xFF, 0x00,   /* two literals: 0xFF then 0x00 */
-        0x82, 0xAA          /* run of three 0xAA           */
+        0x01, 0xFF, 0x00,
+        0x82, 0xAA
     };
     CHECK_EQ(openingApplyDelta(g_page, enc, (int32_t)sizeof(enc), 5), 1);
 
@@ -101,16 +101,20 @@ static void test_short_literal_and_run_by_hand(void)
 
 static void test_rejects_stream_that_overruns_the_page(void)
 {
-    memset(g_page, 0, PAGE);
-    const uint8_t enc[] = { 0x83, 0x11 };   /* run of four into a 3-byte page */
-    CHECK_EQ(openingApplyDelta(g_page, enc, (int32_t)sizeof(enc), 3), 0);
+    uint8_t page[4];
+    memset(page, 0, 4);
+    page[3] = 0xCC;
+    const uint8_t enc[] = { 0x83, 0x11 };
+    CHECK_EQ(openingApplyDelta(page, enc, (int32_t)sizeof(enc), 3), 0);
+    CHECK_EQ(page[3], 0xCC);
 }
 
 static void test_rejects_stream_that_underruns_the_page(void)
 {
-    memset(g_page, 0, PAGE);
-    const uint8_t enc[] = { 0x81, 0x11 };   /* run of two into a 9-byte page */
-    CHECK_EQ(openingApplyDelta(g_page, enc, (int32_t)sizeof(enc), 9), 0);
+    uint8_t page[9];
+    memset(page, 0, 9);
+    const uint8_t enc[] = { 0x81, 0x11 };
+    CHECK_EQ(openingApplyDelta(page, enc, (int32_t)sizeof(enc), 9), 0);
 }
 
 static void test_rejects_truncated_stream(void)
