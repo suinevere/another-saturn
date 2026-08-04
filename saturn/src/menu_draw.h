@@ -1,11 +1,10 @@
 /*----------------------
  | menu_draw.h
  | Description: Drawing primitives for the title, pause and slot-list screens:
- |   fills, ramp-based text, palette dimming and the frozen-frame remap over a
- |   raw 4bpp page buffer. The font is passed in rather than pulled from
- |   Video, and there is no other engine dependency, so the pixel arithmetic
- |   is host-testable the same way scsp_voice.h is kept apart from
- |   saturn_scsp.cxx.
+ |   fills, ramp-based text and the frozen-frame remap over a raw 4bpp page
+ |   buffer. The font is passed in rather than pulled from Video, and there is
+ |   no other engine dependency, so the pixel arithmetic is host-testable the
+ |   same way scsp_voice.h is kept apart from saturn_scsp.cxx.
  | Author: suinevere
  | Dependencies: stdint.h
  ----------------------*/
@@ -64,19 +63,6 @@ void menuDrawChar(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t 
  | Returns: N/A
  ----------------------*/
 void menuDrawText(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t base, const char *s);
-
-/*----------------------
- | menuDrawDimPalette
- | Description: Halves every channel of a 16-entry, 2-bytes-per-entry palette,
- |   except that keepIndex, when 0..15, is written as full white instead of
- |   dimmed. A keepIndex outside 0..15 dims every entry.
- | Author: suinevere
- | Params: src -- 32 bytes, source palette; dst -- 32 bytes, may not overlap
- |         src; keepIndex -- entry to keep bright, or any value outside 0..15
- |         to dim all sixteen
- | Returns: N/A
- ----------------------*/
-void menuDrawDimPalette(const uint8_t *src, uint8_t *dst, int keepIndex);
 
 /*----------------------
  | menuFreezeRemap

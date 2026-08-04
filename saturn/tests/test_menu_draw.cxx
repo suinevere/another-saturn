@@ -1,8 +1,8 @@
 /*----------------------
  | test_menu_draw.cxx
  | Description: Host unit tests for the menu drawing primitives. The 4bpp
- |   packing, ramp-based text and the palette dim are pure arithmetic over a
- |   buffer, so they run off-target rather than being eyeballed on hardware.
+ |   packing and ramp-based text are pure arithmetic over a buffer, so they
+ |   run off-target rather than being eyeballed on hardware.
  | Author: suinevere
  | Dependencies: menu_draw.h
  ----------------------*/
@@ -173,33 +173,6 @@ static void test_text_off_the_right_edge_is_dropped(void)
     CHECK_EQ(pixelAt(312, 0), 3);
 }
 
-static void test_dim_halves_every_channel(void)
-{
-    uint8_t src[32];
-    uint8_t dst[32];
-    memset(src, 0, sizeof(src));
-    src[0] = 0x0E;
-    src[1] = 0xA6;
-
-    menuDrawDimPalette(src, dst, -1);
-    CHECK_EQ(dst[0] & 0x0F, 7);
-    CHECK_EQ((dst[1] & 0xF0) >> 4, 5);
-    CHECK_EQ(dst[1] & 0x0F, 3);
-}
-
-static void test_dim_keeps_the_text_index_bright(void)
-{
-    uint8_t src[32];
-    uint8_t dst[32];
-    memset(src, 0, sizeof(src));
-
-    menuDrawDimPalette(src, dst, 15);
-    CHECK_EQ(dst[30] & 0x0F, 15);
-    CHECK_EQ((dst[31] & 0xF0) >> 4, 15);
-    CHECK_EQ(dst[31] & 0x0F, 15);
-    CHECK_EQ(dst[0] & 0x0F, 0);
-}
-
 int main(void)
 {
     test_fill_sets_both_nibbles();
@@ -214,8 +187,6 @@ int main(void)
     test_char_negative_y_leaves_page_unmodified();
     test_text_advances_one_cell_per_character();
     test_text_off_the_right_edge_is_dropped();
-    test_dim_halves_every_channel();
-    test_dim_keeps_the_text_index_bright();
 
     if (g_fail == 0) {
         printf("all tests passed\n");

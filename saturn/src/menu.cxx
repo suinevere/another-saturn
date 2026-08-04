@@ -2,9 +2,10 @@
  | menu.cxx
  | Description: The screens themselves -- title card, pause menu, slot list and
  |   confirm prompt -- plus the input edge detector and the palette handling
- |   that lets the pause menu sit over a dimmed copy of the frozen frame. The
- |   logic lives in menu_state.cxx and the pixels in menu_draw.cxx; this file is
- |   the glue that owns the page, talks to Engine, and reads backup RAM.
+ |   that lets the pause menu sit over the frozen frame remapped to monochrome.
+ |   The logic lives in menu_state.cxx and the pixels in menu_draw.cxx; this
+ |   file is the glue that owns the page, talks to Engine, and reads backup
+ |   RAM.
  | Author: suinevere
  | Dependencies: menu.h, engine.h, sys.h, video.h, menu_draw.h, menu_blit.h,
  |   menu_art.h, savedata.h, saturn_backup.h, saturn_platform.h
@@ -261,7 +262,6 @@ void Menu::init(Engine *e) {
 
 	memset(&_st, 0, sizeof(_st));
 	memset(_savedPal, 0, sizeof(_savedPal));
-	memset(_dimPal, 0, sizeof(_dimPal));
 	memset(&_devInternal, 0, sizeof(_devInternal));
 	memset(&_devCart, 0, sizeof(_devCart));
 
@@ -420,7 +420,7 @@ static void menuDrawTitleScreen(uint8_t *page, const MenuState *st) {
 /*----------------------
  | menuDrawPauseScreen
  | Description: Paints the pause panel over whatever is already in the page,
- |   which is the dimmed frozen frame.
+ |   which is the frozen frame remapped to monochrome.
  | Author: suinevere
  | Params: page -- compositing page; st -- state, for the cursor position
  | Returns: N/A
@@ -428,7 +428,8 @@ static void menuDrawTitleScreen(uint8_t *page, const MenuState *st) {
 static void menuDrawPauseScreen(uint8_t *page, const MenuState *st) {
 	const uint8_t *font = Video::_font;
 
-	menuDrawFill(page, 80, 48, 168, 96, MENU_COL_PANEL);
+	menuDrawFill(page, 80, 48, 168, 96, MENU_COL_BORDER);
+	menuDrawFill(page, 82, 50, 164, 92, MENU_COL_PANEL);
 	menuDrawText(page, font, 13, 60, st->cursor == 0 ? MENU_BASE_SEL : MENU_BASE_DIM, "RESUME");
 	menuDrawText(page, font, 13, 76, st->cursor == 1 ? MENU_BASE_SEL : MENU_BASE_DIM, "SAVE GAME");
 	menuDrawText(page, font, 13, 92, st->cursor == 2 ? MENU_BASE_SEL : MENU_BASE_DIM, "LOAD GAME");
@@ -451,7 +452,8 @@ static void menuDrawSlotScreen(uint8_t *page, const MenuState *st,
 	const uint8_t *font = Video::_font;
 	char row[40];
 
-	menuDrawFill(page, 24, 16, 272, 168, MENU_COL_PANEL);
+	menuDrawFill(page, 24, 16, 272, 168, MENU_COL_BORDER);
+	menuDrawFill(page, 26, 18, 268, 164, MENU_COL_PANEL);
 	menuDrawText(page, font, 15, 24, MENU_BASE_DIM,
 	             st->saving ? "SAVE GAME" : "LOAD GAME");
 
@@ -488,7 +490,8 @@ static void menuDrawSlotScreen(uint8_t *page, const MenuState *st,
 static void menuDrawConfirmScreen(uint8_t *page, const MenuState *st) {
 	const uint8_t *font = Video::_font;
 
-	menuDrawFill(page, 40, 64, 240, 72, MENU_COL_PANEL);
+	menuDrawFill(page, 40, 64, 240, 72, MENU_COL_BORDER);
+	menuDrawFill(page, 42, 66, 236, 68, MENU_COL_PANEL);
 
 	if (st->pending == MENU_ACT_RETURN_TO_TITLE) {
 		menuDrawText(page, font, 7, 76, MENU_BASE_DIM, "RETURN TO MENU ?");
@@ -518,14 +521,17 @@ static void menuDrawConfirmScreen(uint8_t *page, const MenuState *st) {
  | Author: suinevere
  | Params: page -- compositing page; sys -- for the present call; st -- state;
  |   statusError -- last failure to report; overlay -- true to composite over
- |   the frozen frame; backdrop -- that frame, or NULL when not overlaying
+ |   the frozen frame; backdrop -- that frame, or NULL when not overlaying;
+ |   freezePal -- the game palette the backdrop was drawn against, or NULL when
+ |   not overlaying
  | Returns: N/A
  ----------------------*/
 static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
                             int statusError, bool overlay,
-                            const uint8_t *backdrop) {
+                            const uint8_t *backdrop, const uint8_t *freezePal) {
 	if (overlay) {
 		memcpy(page, backdrop, MENU_PAGE_SIZE);
+		menuFreezeRemap(page, freezePal);
 	}
 
 	switch (st->screen) {
@@ -741,10 +747,11 @@ bool Menu::runPause() {
 	_engine->mixer.stopAll();
 
 	sat_video_get_palette(_savedPal);
-	menuDrawDimPalette(_savedPal, _dimPal, 15);
-	_sys->setPalette(_dimPal);
+	memcpy(_page, backdrop, MENU_PAGE_SIZE);
+	menuFreezeRemap(_page, _savedPal);
+	_sys->setPalette(MENU_ART_PALETTE);
 
-	menuRenderFrame(_page, _sys, &_st, _statusError, true, backdrop);
+	menuRenderFrame(_page, _sys, &_st, _statusError, true, backdrop, _savedPal);
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
 	bool resume = true;
@@ -780,7 +787,7 @@ bool Menu::runPause() {
 			menuRescan(&_st);
 		}
 
-		menuRenderFrame(_page, _sys, &_st, _statusError, true, backdrop);
+		menuRenderFrame(_page, _sys, &_st, _statusError, true, backdrop, _savedPal);
 	}
 
 	if (!paletteOwnedByLoad) {

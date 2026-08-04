@@ -1,8 +1,7 @@
 /*----------------------
  | menu_draw.cxx
- | Description: Fills, ramp-based text, palette dimming and the frozen-frame
- |   remap over a raw 4bpp page buffer. No engine headers, no SGL: see
- |   menu_draw.h for why.
+ | Description: Fills, ramp-based text and the frozen-frame remap over a raw
+ |   4bpp page buffer. No engine headers, no SGL: see menu_draw.h for why.
  | Author: suinevere
  | Dependencies: menu_draw.h
  ----------------------*/
@@ -100,38 +99,6 @@ void menuDrawText(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t 
 		menuDrawChar(page, font, cx, y, base, *s);
 		++cx;
 		++s;
-	}
-}
-
-/*----------------------
- | menuDrawDimPalette
- | Description: Halves every channel of a 16-entry, 2-bytes-per-entry palette,
- |   except that keepIndex, when 0..15, is written as full white instead of
- |   dimmed.
- | Author: suinevere
- | Params: src -- 32 bytes, source palette; dst -- 32 bytes, may not overlap
- |         src; keepIndex -- entry to keep bright, or any value outside 0..15
- |         to dim all sixteen
- | Returns: N/A
- ----------------------*/
-void menuDrawDimPalette(const uint8_t *src, uint8_t *dst, int keepIndex)
-{
-	for (int i = 0; i < 16; ++i) {
-		if (i == keepIndex) {
-			dst[i * 2]     = 0x0F;
-			dst[i * 2 + 1] = 0xFF;
-			continue;
-		}
-
-		uint8_t b0 = src[i * 2];
-		uint8_t b1 = src[i * 2 + 1];
-
-		uint8_t r = (b0 & 0x0F) >> 1;
-		uint8_t g = ((b1 & 0xF0) >> 4) >> 1;
-		uint8_t b = (b1 & 0x0F) >> 1;
-
-		dst[i * 2]     = r;
-		dst[i * 2 + 1] = (g << 4) | b;
 	}
 }
 

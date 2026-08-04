@@ -31,7 +31,6 @@ struct Menu {
 	uint8_t *_page;
 	MenuState _st;
 	uint8_t _savedPal[32];
-	uint8_t _dimPal[32];
 	int _statusError;
 	uint32_t _prevPad;
 	int _repeatTimer;
@@ -88,8 +87,8 @@ struct Menu {
 
 	/*----------------------
 	 | Menu::runPause
-	 | Description: Runs the pause menu over a dimmed copy of the frozen frame,
-	 |   restoring the game's palette before it returns.
+	 | Description: Runs the pause menu over the frozen frame remapped to a
+	 |   monochrome ramp, restoring the game's palette before it returns.
 	 | Author: suinevere
 	 | Params: N/A
 	 | Returns: true to resume play, false to go back to the title card
