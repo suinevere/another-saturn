@@ -1,8 +1,8 @@
 /*----------------------
  | test_menu_draw.cxx
  | Description: Host unit tests for the menu drawing primitives. The 4bpp
- |   packing and the palette dim are pure arithmetic over a buffer, so they run
- |   off-target rather than being eyeballed on hardware.
+ |   packing, ramp-based text and the palette dim are pure arithmetic over a
+ |   buffer, so they run off-target rather than being eyeballed on hardware.
  | Author: suinevere
  | Dependencies: menu_draw.h
  ----------------------*/
@@ -75,7 +75,7 @@ static void test_char_writes_eight_by_eight(void)
     menuDrawChar(g_page, g_font, 0, 0, 9, 'A');
     for (int y = 0; y < 8; ++y) {
         for (int x = 0; x < 8; ++x) {
-            CHECK_EQ(pixelAt(x, y), 9);
+            CHECK_EQ(pixelAt(x, y), 11);
         }
     }
     CHECK_EQ(pixelAt(8, 0), 0);
@@ -86,7 +86,7 @@ static void test_char_lands_on_the_right_cell(void)
 {
     setup();
     menuDrawChar(g_page, g_font, 3, 16, 2, 'B');
-    CHECK_EQ(pixelAt(24, 16), 2);
+    CHECK_EQ(pixelAt(24, 16), 4);
     CHECK_EQ(pixelAt(23, 16), 0);
 }
 
@@ -113,7 +113,7 @@ static void test_char_bit7_maps_to_leftmost_pixel(void)
     setupAsymmetricFont();
     g_font[('A' - ' ') * 8] = 0x80;
     menuDrawChar(g_page, g_font, 0, 0, 9, 'A');
-    CHECK_EQ(pixelAt(0, 0), 9);
+    CHECK_EQ(pixelAt(0, 0), 11);
     for (int x = 1; x < 8; ++x) {
         CHECK_EQ(pixelAt(x, 0), 0);
     }
@@ -124,8 +124,8 @@ static void test_char_nibble_boundary_within_a_byte(void)
     setupAsymmetricFont();
     g_font[('A' - ' ') * 8] = 0xC0;
     menuDrawChar(g_page, g_font, 0, 0, 9, 'A');
-    CHECK_EQ(pixelAt(0, 0), 9);
-    CHECK_EQ(pixelAt(1, 0), 9);
+    CHECK_EQ(pixelAt(0, 0), 11);
+    CHECK_EQ(pixelAt(1, 0), 11);
     for (int x = 2; x < 8; ++x) {
         CHECK_EQ(pixelAt(x, 0), 0);
     }
@@ -139,8 +139,8 @@ static void test_char_right_side_bits_land_on_the_right(void)
     for (int x = 0; x < 6; ++x) {
         CHECK_EQ(pixelAt(x, 0), 0);
     }
-    CHECK_EQ(pixelAt(6, 0), 9);
-    CHECK_EQ(pixelAt(7, 0), 9);
+    CHECK_EQ(pixelAt(6, 0), 11);
+    CHECK_EQ(pixelAt(7, 0), 11);
 }
 
 static void test_char_negative_cellx_leaves_page_unmodified(void)
@@ -161,8 +161,8 @@ static void test_text_advances_one_cell_per_character(void)
 {
     setup();
     menuDrawText(g_page, g_font, 0, 0, 1, "AB");
-    CHECK_EQ(pixelAt(0, 0), 1);
-    CHECK_EQ(pixelAt(8, 0), 1);
+    CHECK_EQ(pixelAt(0, 0), 3);
+    CHECK_EQ(pixelAt(8, 0), 3);
     CHECK_EQ(pixelAt(16, 0), 0);
 }
 
@@ -170,7 +170,7 @@ static void test_text_off_the_right_edge_is_dropped(void)
 {
     setup();
     menuDrawText(g_page, g_font, 38, 0, 1, "ABCD");
-    CHECK_EQ(pixelAt(312, 0), 1);
+    CHECK_EQ(pixelAt(312, 0), 3);
 }
 
 static void test_dim_halves_every_channel(void)

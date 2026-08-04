@@ -190,6 +190,85 @@ static void test_logo_dimensions(void)
     CHECK_EQ(MENU_ART_BOLT[2].h, 40);
 }
 
+static void test_freeze_remap_bounds_every_nibble(void)
+{
+    setup();
+    for (int i = 0; i < MENU_PAGE_SIZE; ++i) {
+        g_page[i] = (uint8_t)(i & 0xFF);
+    }
+
+    uint8_t pal[32];
+    for (int i = 0; i < 16; ++i) {
+        pal[i * 2]     = (uint8_t)i;
+        pal[i * 2 + 1] = (uint8_t)((i << 4) | i);
+    }
+
+    menuFreezeRemap(g_page, pal);
+
+    for (int i = 0; i < MENU_PAGE_SIZE; ++i) {
+        CHECK_EQ((g_page[i] >> 4) <= 3, 1);
+        CHECK_EQ((g_page[i] & 0x0F) <= 3, 1);
+    }
+}
+
+static void test_freeze_remap_uniform_palette_is_uniform(void)
+{
+    setup();
+    memset(g_page, 0xAB, MENU_PAGE_SIZE);
+
+    uint8_t pal[32];
+    for (int i = 0; i < 16; ++i) {
+        pal[i * 2]     = 0x0F;
+        pal[i * 2 + 1] = 0xFF;
+    }
+
+    menuFreezeRemap(g_page, pal);
+    CHECK_EQ(g_page[0], 0x33);
+    CHECK_EQ(g_page[MENU_PAGE_SIZE - 1], 0x33);
+}
+
+static void test_freeze_remap_darkest_becomes_black(void)
+{
+    setup();
+    memset(g_page, 0x00, MENU_PAGE_SIZE);
+
+    uint8_t pal[32];
+    memset(pal, 0, sizeof(pal));
+    pal[0] = 0x00;
+    pal[1] = 0x00;
+
+    menuFreezeRemap(g_page, pal);
+    CHECK_EQ(g_page[0], 0x00);
+}
+
+static void test_freeze_remap_touches_both_nibbles(void)
+{
+    setup();
+    uint8_t pal[32];
+    memset(pal, 0, sizeof(pal));
+    pal[15 * 2]     = 0x0F;
+    pal[15 * 2 + 1] = 0xFF;
+
+    g_page[0] = 0xF0;
+    menuFreezeRemap(g_page, pal);
+    CHECK_EQ(g_page[0] >> 4, 3);
+    CHECK_EQ(g_page[0] & 0x0F, 0);
+}
+
+static void test_text_renders_at_base_plus_two(void)
+{
+    static uint8_t font[96 * 8];
+    memset(font, 0xFF, sizeof(font));
+
+    setup();
+    menuDrawText(g_page, font, 0, 0, 8, "A");
+    CHECK_EQ(pixelAt(0, 0), 10);
+
+    setup();
+    menuDrawText(g_page, font, 0, 0, 12, "A");
+    CHECK_EQ(pixelAt(0, 0), 14);
+}
+
 int main(void)
 {
     test_blit4_even_x();
@@ -204,6 +283,11 @@ int main(void)
     test_strobe_is_monotonic();
     test_palette_has_sixteen_entries();
     test_logo_dimensions();
+    test_freeze_remap_bounds_every_nibble();
+    test_freeze_remap_uniform_palette_is_uniform();
+    test_freeze_remap_darkest_becomes_black();
+    test_freeze_remap_touches_both_nibbles();
+    test_text_renders_at_base_plus_two();
 
     if (g_fail != 0) {
         printf("%d check(s) failed\n", g_fail);

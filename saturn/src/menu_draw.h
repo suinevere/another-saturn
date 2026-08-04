@@ -1,10 +1,11 @@
 /*----------------------
  | menu_draw.h
  | Description: Drawing primitives for the title, pause and slot-list screens:
- |   fills, text and palette dimming over a raw 4bpp page buffer. The font is
- |   passed in rather than pulled from Video, and there is no other engine
- |   dependency, so the pixel arithmetic is host-testable the same way
- |   scsp_voice.h is kept apart from saturn_scsp.cxx.
+ |   fills, ramp-based text, palette dimming and the frozen-frame remap over a
+ |   raw 4bpp page buffer. The font is passed in rather than pulled from
+ |   Video, and there is no other engine dependency, so the pixel arithmetic
+ |   is host-testable the same way scsp_voice.h is kept apart from
+ |   saturn_scsp.cxx.
  | Author: suinevere
  | Dependencies: stdint.h
  ----------------------*/
@@ -42,15 +43,15 @@ void menuDrawFill(uint8_t *page, int x, int y, int w, int h, uint8_t color);
 /*----------------------
  | menuDrawChar
  | Description: Draws one glyph, packing two pixels per byte the same way
- |   Video::drawChar does. cellX is in 8-pixel cells and y is in scanlines,
- |   not pixels; out-of-range cells or rows are silently dropped.
+ |   Video::drawChar does. cellX is in 8-pixel cells and y is in scanlines, not
+ |   pixels; out-of-range cells or rows are silently dropped.
  | Author: suinevere
  | Params: page -- MENU_PAGE_SIZE bytes; font -- 8 bytes per glyph starting at
  |         ' '; cellX -- column, 0..39; y -- row in scanlines, 0..192;
- |         color -- 4-bit palette index; c -- the glyph to draw
+ |         base -- ramp base, the glyph renders at base + 2; c -- the glyph
  | Returns: N/A
  ----------------------*/
-void menuDrawChar(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t color, char c);
+void menuDrawChar(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t base, char c);
 
 /*----------------------
  | menuDrawText
@@ -58,11 +59,11 @@ void menuDrawChar(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t 
  |   cell 40 rather than wrapping.
  | Author: suinevere
  | Params: page -- MENU_PAGE_SIZE bytes; font -- glyph table, see menuDrawChar;
- |         cellX -- starting column; y -- row in scanlines; color -- 4-bit
- |         palette index; s -- NUL-terminated string
+ |         cellX -- starting column; y -- row in scanlines; base -- ramp base;
+ |         s -- NUL-terminated string
  | Returns: N/A
  ----------------------*/
-void menuDrawText(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t color, const char *s);
+void menuDrawText(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t base, const char *s);
 
 /*----------------------
  | menuDrawDimPalette
@@ -76,5 +77,19 @@ void menuDrawText(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t 
  | Returns: N/A
  ----------------------*/
 void menuDrawDimPalette(const uint8_t *src, uint8_t *dst, int keepIndex);
+
+/*----------------------
+ | menuFreezeRemap
+ | Description: Collapses a frozen game frame onto palette indices 0..3 by
+ |   luminance, in place. This is what frees entries 4..15 for artwork while a
+ |   menu sits over a paused game: the backdrop stops needing the game's own
+ |   sixteen colours. Colours in the darkest quarter map to 0, so a dark scene
+ |   goes true black rather than reading as noise behind the panel.
+ | Author: suinevere
+ | Params: page -- MENU_PAGE_SIZE bytes, remapped in place; srcPalette --
+ |         32 bytes, the game palette the page was drawn against
+ | Returns: N/A
+ ----------------------*/
+void menuFreezeRemap(uint8_t *page, const uint8_t *srcPalette);
 
 #endif /* MENU_DRAW_H */

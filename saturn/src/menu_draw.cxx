@@ -1,7 +1,8 @@
 /*----------------------
  | menu_draw.cxx
- | Description: Fills, text and palette dimming over a raw 4bpp page buffer.
- |   No engine headers, no SGL: see menu_draw.h for why.
+ | Description: Fills, ramp-based text, palette dimming and the frozen-frame
+ |   remap over a raw 4bpp page buffer. No engine headers, no SGL: see
+ |   menu_draw.h for why.
  | Author: suinevere
  | Dependencies: menu_draw.h
  ----------------------*/
@@ -47,15 +48,16 @@ void menuDrawFill(uint8_t *page, int x, int y, int w, int h, uint8_t color)
  | Author: suinevere
  | Params: page -- MENU_PAGE_SIZE bytes; font -- 8 bytes per glyph starting at
  |         ' '; cellX -- column, 0..39; y -- row in scanlines, 0..192;
- |         color -- 4-bit palette index; c -- the glyph to draw
+ |         base -- ramp base, the glyph renders at base + 2; c -- the glyph
  | Returns: N/A
  ----------------------*/
-void menuDrawChar(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t color, char c)
+void menuDrawChar(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t base, char c)
 {
 	if (cellX < 0 || cellX > 39 || y < 0 || y > 192) {
 		return;
 	}
 
+	const uint8_t color = (uint8_t)(base + 2);
 	const uint8_t *ft = font + (c - ' ') * 8;
 	uint8_t *p = page + cellX * 4 + y * MENU_PAGE_PITCH;
 
@@ -87,15 +89,15 @@ void menuDrawChar(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t 
  |   cell 40 rather than wrapping.
  | Author: suinevere
  | Params: page -- MENU_PAGE_SIZE bytes; font -- glyph table, see menuDrawChar;
- |         cellX -- starting column; y -- row in scanlines; color -- 4-bit
- |         palette index; s -- NUL-terminated string
+ |         cellX -- starting column; y -- row in scanlines; base -- ramp base;
+ |         s -- NUL-terminated string
  | Returns: N/A
  ----------------------*/
-void menuDrawText(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t color, const char *s)
+void menuDrawText(uint8_t *page, const uint8_t *font, int cellX, int y, uint8_t base, const char *s)
 {
 	int cx = cellX;
 	while (*s != '\0' && cx < 40) {
-		menuDrawChar(page, font, cx, y, color, *s);
+		menuDrawChar(page, font, cx, y, base, *s);
 		++cx;
 		++s;
 	}
@@ -130,5 +132,40 @@ void menuDrawDimPalette(const uint8_t *src, uint8_t *dst, int keepIndex)
 
 		dst[i * 2]     = r;
 		dst[i * 2 + 1] = (g << 4) | b;
+	}
+}
+
+/*----------------------
+ | menuFreezeRemap
+ | Description: Collapses a frozen game frame onto palette indices 0..3 by
+ |   luminance, in place. This is what frees entries 4..15 for artwork while a
+ |   menu sits over a paused game: the backdrop stops needing the game's own
+ |   sixteen colours. Colours in the darkest quarter map to 0, so a dark scene
+ |   goes true black rather than reading as noise behind the panel.
+ | Author: suinevere
+ | Params: page -- MENU_PAGE_SIZE bytes, remapped in place; srcPalette --
+ |         32 bytes, the game palette the page was drawn against
+ | Returns: N/A
+ ----------------------*/
+void menuFreezeRemap(uint8_t *page, const uint8_t *srcPalette)
+{
+	uint8_t map[16];
+	for (int i = 0; i < 16; ++i) {
+		const uint8_t b0 = srcPalette[i * 2];
+		const uint8_t b1 = srcPalette[i * 2 + 1];
+		const int r = b0 & 0x0F;
+		const int g = (b1 & 0xF0) >> 4;
+		const int b = b1 & 0x0F;
+		const int y = (r * 77 + g * 151 + b * 28) >> 8;
+		map[i] = (uint8_t)(y >> 2);
+	}
+
+	uint8_t lut8[256];
+	for (int i = 0; i < 256; ++i) {
+		lut8[i] = (uint8_t)((map[i >> 4] << 4) | map[i & 0x0F]);
+	}
+
+	for (int i = 0; i < MENU_PAGE_SIZE; ++i) {
+		page[i] = lut8[page[i]];
 	}
 }
