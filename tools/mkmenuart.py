@@ -8,6 +8,7 @@ Usage: python tools/mkmenuart.py
 """
 import os
 from PIL import Image
+from opening_frames import LAST_FRAME
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "saturn", "src", "menu_art.cxx")
@@ -91,16 +92,14 @@ def emit_public_array(f, name, data):
 BACKDROP_SLOTS = [(0, (0, 0, 0)), (4, (0x00, 0x48, 0x49)), (5, (0x25, 0x6C, 0x6E)),
                   (6, (0x49, 0x90, 0x93)), (15, (0xFF, 0xFF, 0xFF))]
 
-BACKDROP_FRAME = 382  # last frame within 3% of peak ink before the GIF fades to black for its loop
-
 
 def build_backdrop():
-    """The opening's last played frame (BACKDROP_FRAME), quantised onto the slots the logo already uses."""
+    """The opening's last played frame (LAST_FRAME), quantised onto the slots the logo already uses."""
     from PIL import ImageSequence
     src = Image.open(os.path.join(ROOT, "images", "genesis-opening.gif"))
     target = None
     for i, fr in enumerate(ImageSequence.Iterator(src)):
-        if i == BACKDROP_FRAME:
+        if i == LAST_FRAME:
             target = fr.convert("RGB")
             break
     img = target.resize((320, 240), Image.BOX).crop((0, 0, 320, 200))

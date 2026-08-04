@@ -9,6 +9,7 @@ Usage: python tools/mkopening.py
 import os
 import struct
 from PIL import Image, ImageSequence
+from opening_frames import LAST_FRAME
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "images", "genesis-opening.gif")
@@ -18,8 +19,6 @@ W, H = 320, 200
 PAGE = (W // 2) * H          # 32000
 NATIVE_H = 240               # 640x480 box-downsamples to 320x240
 KEYFRAMES = None             # filled in once the frame count is known
-
-LAST_FRAME = 382             # last frame within 3% of peak ink; 383-397 are the GIF's loop-back fade to black and are dropped
 
 
 def load_frames():

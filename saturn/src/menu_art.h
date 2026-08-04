@@ -24,9 +24,9 @@ enum {
 
 /*----------------------
  | MENU_ART_TITLE_BACKDROP
- | Description: The opening animation's final frame as a full 320x200 4bpp page,
- |   using only the palette slots the artwork ramp already owns so the menu can
- |   draw straight over it.
+ | Description: The last frame the opening plays, before its loop fade to black,
+ |   as a full 320x200 4bpp page using only the palette slots the artwork ramp
+ |   already owns so the menu can draw straight over it.
  | Author: suinevere
  ----------------------*/
 extern const uint8_t MENU_ART_TITLE_BACKDROP[32000];
