@@ -23,9 +23,37 @@ enum {
 	MENU_ART_STROBE_LEVELS = 16
 };
 
+/*----------------------
+ | MENU_ART_LOGO
+ | Description: The Another World wordmark, extracted from the Mega Drive
+ |   capture and stretched to its title-screen size.
+ | Author: suinevere
+ ----------------------*/
 extern const MenuArt MENU_ART_LOGO;
+
+/*----------------------
+ | MENU_ART_BOLT
+ | Description: The three lightning bolt variants the title screen chooses
+ |   between: bolt 1 is bolt 0 mirrored horizontally, bolt 2 is that mirror
+ |   cropped to its top 40 rows.
+ | Author: suinevere
+ ----------------------*/
 extern const MenuArt MENU_ART_BOLT[MENU_ART_BOLT_COUNT];
+
+/*----------------------
+ | MENU_ART_START_GAME
+ | Description: The "start game" chrome string, drawn in whichever ramp the
+ |   caller's base index selects.
+ | Author: suinevere
+ ----------------------*/
 extern const MenuArt MENU_ART_START_GAME;
+
+/*----------------------
+ | MENU_ART_LOAD_GAME
+ | Description: The "load game" chrome string, drawn in whichever ramp the
+ |   caller's base index selects.
+ | Author: suinevere
+ ----------------------*/
 extern const MenuArt MENU_ART_LOAD_GAME;
 
 /*----------------------
