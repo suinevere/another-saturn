@@ -30,6 +30,10 @@ SaturnRingLib/tools/bin/
 # --- Host/IDE build dirs -----------------------------------------------------
 cmake-build-*/
 
+# --- Visual brainstorming session scratch ------------------------------------
+# Mockups the design companion serves to the browser. Working material, not source.
+.superpowers/
+
 # --- Host unit-test binaries --------------------------------------------------
 # saturn/tests/run_tests.sh builds these with the host g++ (not the SH-2 cross
 # compiler), one binary per suite, so each area can be tested off-target. Build
