@@ -1,8 +1,8 @@
 /*----------------------
  | menu_art.h
- | Description: The menu's artwork, packed by tools/mkmenuart.py, with the logo
- |   and bolts in absolute palette indices and the two strings in relative
- |   shades so they can render in either ramp.
+ | Description: The menu's artwork, packed by tools/mkmenuart.py, with the title
+ |   backdrop and bolts in absolute palette indices and the two strings in
+ |   relative shades so they can render in either ramp.
  | Author: suinevere
  | Dependencies: menu_blit.h
  ----------------------*/
@@ -23,12 +23,13 @@ enum {
 };
 
 /*----------------------
- | MENU_ART_LOGO
- | Description: The Another World wordmark, extracted from the Mega Drive
- |   capture and stretched to its title-screen size.
+ | MENU_ART_TITLE_BACKDROP
+ | Description: The opening animation's final frame as a full 320x200 4bpp page,
+ |   using only the palette slots the artwork ramp already owns so the menu can
+ |   draw straight over it.
  | Author: suinevere
  ----------------------*/
-extern const MenuArt MENU_ART_LOGO;
+extern const uint8_t MENU_ART_TITLE_BACKDROP[32000];
 
 /*----------------------
  | MENU_ART_BOLT

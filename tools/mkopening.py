@@ -19,12 +19,16 @@ PAGE = (W // 2) * H          # 32000
 NATIVE_H = 240               # 640x480 box-downsamples to 320x240
 KEYFRAMES = None             # filled in once the frame count is known
 
+LAST_FRAME = 382             # last frame within 3% of peak ink; 383-397 are the GIF's loop-back fade to black and are dropped
+
 
 def load_frames():
-    """Box-downsample each GIF frame to 320x240 and take the top 200 rows."""
+    """Box-downsample each GIF frame to 320x240 and take the top 200 rows, stopping at LAST_FRAME."""
     im = Image.open(SRC)
     out = []
-    for fr in ImageSequence.Iterator(im):
+    for i, fr in enumerate(ImageSequence.Iterator(im)):
+        if i > LAST_FRAME:
+            break
         rgb = fr.convert("RGB").resize((W, NATIVE_H), Image.BOX)
         out.append(rgb.crop((0, 0, W, H)))
     return out

@@ -402,15 +402,14 @@ static void menuRescan(MenuState *st) {
 
 /*----------------------
  | menuDrawTitleScreen
- | Description: Paints the title card -- wordmark and two entry points, the
- |   selected one shown by ramp rather than a cursor glyph.
+ | Description: Paints the title card over the opening's final frame, with the
+ |   selected entry shown by ramp rather than a cursor glyph.
  | Author: suinevere
  | Params: page -- compositing page; st -- state, for the cursor position
  | Returns: N/A
  ----------------------*/
 static void menuDrawTitleScreen(uint8_t *page, const MenuState *st) {
-	memset(page, 0, MENU_PAGE_SIZE);
-	menuBlit4bpp(page, &MENU_ART_LOGO, 15, 30);
+	memcpy(page, MENU_ART_TITLE_BACKDROP, MENU_PAGE_SIZE);
 	menuBlit2bpp(page, &MENU_ART_START_GAME, 84, 128,
 	             st->cursor == 0 ? MENU_BASE_SEL : MENU_BASE_DIM);
 	menuBlit2bpp(page, &MENU_ART_LOAD_GAME, 84, 152,

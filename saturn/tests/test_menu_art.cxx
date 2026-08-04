@@ -181,10 +181,8 @@ static void test_palette_has_sixteen_entries(void)
     CHECK_EQ(MENU_ART_PALETTE[15 * 2 + 1], 0xFF);
 }
 
-static void test_logo_dimensions(void)
+static void test_bolt_dimensions(void)
 {
-    CHECK_EQ(MENU_ART_LOGO.w, 290);
-    CHECK_EQ(MENU_ART_LOGO.h, 61);
     CHECK_EQ(MENU_ART_BOLT[0].w, 46);
     CHECK_EQ(MENU_ART_BOLT[0].h, 63);
     CHECK_EQ(MENU_ART_BOLT[2].h, 40);
@@ -282,7 +280,7 @@ int main(void)
     test_strobe_endpoints();
     test_strobe_is_monotonic();
     test_palette_has_sixteen_entries();
-    test_logo_dimensions();
+    test_bolt_dimensions();
     test_freeze_remap_bounds_every_nibble();
     test_freeze_remap_uniform_palette_is_uniform();
     test_freeze_remap_darkest_becomes_black();

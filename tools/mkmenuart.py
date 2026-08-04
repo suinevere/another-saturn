@@ -74,12 +74,6 @@ def pack2(im, shade_of):
     return bytes(out), w, h
 
 
-def logo_index(c):
-    if c == (0, 0, 0):
-        return 0
-    return 4 + LOGO_COLOURS.index(c)
-
-
 def emit_array(f, name, data):
     f.write("static const uint8_t %s[%d] = {\n" % (name, len(data)))
     for i in range(0, len(data), 12):
@@ -87,11 +81,44 @@ def emit_array(f, name, data):
     f.write("};\n\n")
 
 
-def build_logo():
-    src = Image.open(os.path.join(ROOT, "images", "genesis.png")).convert("RGB")
-    logo = src.crop((33, 53, 240, 114))
-    stretched = logo.resize((290, 61), Image.LANCZOS)
-    return pack4(quantise(stretched, [(0, 0, 0)] + LOGO_COLOURS), logo_index)
+def emit_public_array(f, name, data):
+    f.write("const uint8_t %s[%d] = {\n" % (name, len(data)))
+    for i in range(0, len(data), 12):
+        f.write("\t" + " ".join("0x%02X," % b for b in data[i:i + 12]) + "\n")
+    f.write("};\n\n")
+
+
+BACKDROP_SLOTS = [(0, (0, 0, 0)), (4, (0x00, 0x48, 0x49)), (5, (0x25, 0x6C, 0x6E)),
+                  (6, (0x49, 0x90, 0x93)), (15, (0xFF, 0xFF, 0xFF))]
+
+BACKDROP_FRAME = 382  # last frame within 3% of peak ink before the GIF fades to black for its loop
+
+
+def build_backdrop():
+    """The opening's last played frame (BACKDROP_FRAME), quantised onto the slots the logo already uses."""
+    from PIL import ImageSequence
+    src = Image.open(os.path.join(ROOT, "images", "genesis-opening.gif"))
+    target = None
+    for i, fr in enumerate(ImageSequence.Iterator(src)):
+        if i == BACKDROP_FRAME:
+            target = fr.convert("RGB")
+            break
+    img = target.resize((320, 240), Image.BOX).crop((0, 0, 320, 200))
+
+    cols = [c for _, c in BACKDROP_SLOTS]
+    q = quantise(img, cols)
+    px = q.load()
+    idx = {c: i for i, c in BACKDROP_SLOTS}
+
+    pitch = 160
+    buf = bytearray(pitch * 200)
+    for y in range(200):
+        row = y * pitch
+        for x in range(0, 320, 2):
+            a = idx[px[x, y]]
+            b = idx[px[x + 1, y]]
+            buf[row + (x >> 1)] = ((a & 0xF) << 4) | (b & 0xF)
+    return bytes(buf)
 
 
 def build_bolts():
@@ -143,7 +170,7 @@ def build_strobe():
 
 
 def main():
-    logo = build_logo()
+    backdrop = build_backdrop()
     bolts = build_bolts()
     strings = build_strings()
     strobe = build_strobe()
@@ -158,13 +185,12 @@ def main():
         f.write(" ----------------------*/\n")
         f.write('#include "menu_art.h"\n\n')
 
-        emit_array(f, "s_logoBits", logo[0])
         for i, b in enumerate(bolts):
             emit_array(f, "s_boltBits%d" % i, b[0])
         emit_array(f, "s_startGameBits", strings[0][0])
         emit_array(f, "s_loadGameBits", strings[1][0])
+        emit_public_array(f, "MENU_ART_TITLE_BACKDROP", backdrop)
 
-        f.write("const MenuArt MENU_ART_LOGO = { s_logoBits, %d, %d };\n\n" % (logo[1], logo[2]))
         f.write("const MenuArt MENU_ART_BOLT[MENU_ART_BOLT_COUNT] = {\n")
         for i, b in enumerate(bolts):
             f.write("\t{ s_boltBits%d, %d, %d },\n" % (i, b[1], b[2]))
