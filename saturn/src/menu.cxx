@@ -253,6 +253,11 @@ void Menu::init(Engine *e) {
 	_prevPad = 0;
 	_repeatTimer = 0;
 	_devicesProbed = false;
+	_frame = 0;
+	_rng = 0xACE1;
+	_boltTimer = 120;
+	_boltFrame = -1;
+	_boltIndex = 0;
 
 	memset(&_st, 0, sizeof(_st));
 	memset(_savedPal, 0, sizeof(_savedPal));
@@ -550,12 +555,140 @@ static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
 	sys->updateDisplay(page);
 }
 
+/*----------------------
+ | menuNextRandom
+ | Description: One step of a 16-bit LFSR, used instead of libc's rand so the
+ |   menu adds no dependency for bolt timing.
+ | Author: suinevere
+ | Params: state -- advanced in place
+ | Returns: the new state
+ ----------------------*/
+static uint16_t menuNextRandom(uint16_t *state) {
+	uint16_t x = *state;
+	x ^= (uint16_t)(x << 7);
+	x ^= (uint16_t)(x >> 9);
+	x ^= (uint16_t)(x << 8);
+	*state = x;
+	return x;
+}
+
+/*----------------------
+ | menuBoltX
+ | Description: Where each bolt is drawn -- bolt 1 hangs off the left edge as
+ |   bolt 0 mirrored, and bolt 2 is shorter and sits between them.
+ | Author: suinevere
+ | Params: index -- 0..MENU_ART_BOLT_COUNT - 1
+ | Returns: the left edge in pixels
+ ----------------------*/
+static int menuBoltX(int index) {
+	if (index == 0) {
+		return 268;
+	}
+	return (index == 1) ? 6 : 90;
+}
+
+/*----------------------
+ | menuStrobeLevel
+ | Description: Maps a frame counter to a strobe table row, walking up and
+ |   back down so the pulse has no seam.
+ | Author: suinevere
+ | Params: frame -- free-running frame counter
+ | Returns: a row index, 0..MENU_ART_STROBE_LEVELS - 1
+ ----------------------*/
+static int menuStrobeLevel(int frame) {
+	const int span = MENU_ART_STROBE_LEVELS * 2 - 2;
+	int p = frame % span;
+	if (p < 0) {
+		p += span;
+	}
+	return (p < MENU_ART_STROBE_LEVELS) ? p : span - p;
+}
+
+/*----------------------
+ | menuTitlePalette
+ | Description: Builds the title screen's palette for one frame -- artwork
+ |   entries as authored, entries 12..14 from the strobe table, and (while a
+ |   bolt is on screen) every entry 1..14 pushed toward white, overriding the
+ |   strobe for those three frames.
+ | Author: suinevere
+ | Params: out -- 32 bytes; frame -- frame counter, for the strobe phase;
+ |         boltFrame -- 0, 1 or 2 while a bolt is lit, negative otherwise
+ | Returns: N/A
+ ----------------------*/
+static void menuTitlePalette(uint8_t *out, int frame, int boltFrame) {
+	memcpy(out, MENU_ART_PALETTE, 32);
+
+	const uint8_t *row = MENU_ART_STROBE[menuStrobeLevel(frame)];
+	for (int i = 0; i < 3; ++i) {
+		out[(12 + i) * 2]     = row[i * 2];
+		out[(12 + i) * 2 + 1] = row[i * 2 + 1];
+	}
+
+	if (boltFrame < 0 || boltFrame > 1) {
+		return;
+	}
+
+	const int lift = (boltFrame == 0) ? 8 : 4;
+	for (int i = 1; i < 15; ++i) {
+		int r = (out[i * 2] & 0x0F) + lift;
+		int g = ((out[i * 2 + 1] & 0xF0) >> 4) + lift;
+		int b = (out[i * 2 + 1] & 0x0F) + lift;
+		if (r > 15) r = 15;
+		if (g > 15) g = 15;
+		if (b > 15) b = 15;
+		out[i * 2]     = (uint8_t)r;
+		out[i * 2 + 1] = (uint8_t)((g << 4) | b);
+	}
+}
+
+/*----------------------
+ | menuRenderTitleFrame
+ | Description: Draws the title screen, blits the current lightning bolt if
+ |   one is lit, and presents.
+ | Author: suinevere
+ | Params: page -- compositing page; sys -- for the present call; st -- state,
+ |   for the cursor position; boltIndex -- which bolt art to blit;
+ |   boltFrame -- 0, 1 or 2 while a bolt is lit, negative otherwise
+ | Returns: N/A
+ ----------------------*/
+static void menuRenderTitleFrame(uint8_t *page, System *sys,
+                                 const MenuState *st, int boltIndex,
+                                 int boltFrame) {
+	menuDrawTitleScreen(page, st);
+	if (boltFrame >= 0) {
+		menuBlit4bpp(page, &MENU_ART_BOLT[boltIndex], menuBoltX(boltIndex), 0);
+	}
+	sys->updateDisplay(page);
+}
+
+void Menu::titleAnimate() {
+	_frame++;
+
+	if (_boltFrame >= 0) {
+		_boltFrame++;
+		if (_boltFrame >= 3) {
+			_boltFrame = -1;
+			_boltTimer = 120 + (int)(menuNextRandom(&_rng) % 181);
+		}
+	} else {
+		_boltTimer--;
+		if (_boltTimer <= 0) {
+			_boltIndex = (int)(menuNextRandom(&_rng) % MENU_ART_BOLT_COUNT);
+			_boltFrame = 0;
+		}
+	}
+
+	uint8_t pal[32];
+	menuTitlePalette(pal, _frame, _boltFrame);
+	_sys->setPalette(pal);
+}
+
 bool Menu::runTitle() {
 	menuStateEnterTitle(&_st);
 	_statusError = SAT_BUP_OK;
 
-	_sys->setPalette(MENU_ART_PALETTE);
-	menuRenderFrame(_page, _sys, &_st, _statusError, false, 0);
+	titleAnimate();
+	menuRenderTitleFrame(_page, _sys, &_st, _boltIndex, _boltFrame);
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
 	while (!_sys->input.quit) {
@@ -579,7 +712,8 @@ bool Menu::runTitle() {
 			menuRescan(&_st);
 		}
 
-		menuRenderFrame(_page, _sys, &_st, _statusError, false, 0);
+		titleAnimate();
+		menuRenderTitleFrame(_page, _sys, &_st, _boltIndex, _boltFrame);
 	}
 
 	return false;

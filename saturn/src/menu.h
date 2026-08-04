@@ -19,9 +19,10 @@ struct System;
 
 /*----------------------
  | Menu
- | Description: Owns the compositing page, the palette snapshot and the input
- |   edge detector, and turns menu_state's actions into engine calls. The page
- |   is never one of Video's: the VM's pages must survive a pause untouched.
+ | Description: Owns the compositing page (never one of Video's, since the
+ |   VM's pages must survive a pause untouched), the palette snapshot, the
+ |   input edge detector and the title screen's animation counters, and turns
+ |   menu_state's actions into engine calls.
  | Author: suinevere
  ----------------------*/
 struct Menu {
@@ -37,6 +38,11 @@ struct Menu {
 	bool _devicesProbed;
 	SatBupDev _devInternal;
 	SatBupDev _devCart;
+	int _frame;
+	uint16_t _rng;
+	int _boltTimer;
+	int _boltFrame;
+	int _boltIndex;
 
 	/*----------------------
 	 | Menu::ensureDevices
@@ -57,6 +63,16 @@ struct Menu {
 	 | Returns: N/A
 	 ----------------------*/
 	void init(Engine *e);
+
+	/*----------------------
+	 | Menu::titleAnimate
+	 | Description: Advances the frame counter, the bolt timer and the bolt
+	 |   state by one step, and installs the palette they imply.
+	 | Author: suinevere
+	 | Params: N/A
+	 | Returns: N/A
+	 ----------------------*/
+	void titleAnimate();
 
 	/*----------------------
 	 | Menu::runTitle
