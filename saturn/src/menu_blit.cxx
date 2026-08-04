@@ -26,6 +26,15 @@ static void menuBlitPixel(uint8_t *page, int x, int y, uint8_t value)
 	}
 }
 
+/*----------------------
+ | menuBlit4bpp
+ | Description: Draws a 4bpp bitmap whose values are absolute palette indices,
+ |   clipped to the page. Index 0 is left as whatever was already there.
+ | Author: suinevere
+ | Params: page -- MENU_PAGE_SIZE bytes; art -- the bitmap; x, y -- top-left
+ |         corner in pixels, may be negative or off the page
+ | Returns: N/A
+ ----------------------*/
 void menuBlit4bpp(uint8_t *page, const MenuArt *art, int x, int y)
 {
 	const int pitch = (art->w + 1) >> 1;
@@ -50,6 +59,15 @@ void menuBlit4bpp(uint8_t *page, const MenuArt *art, int x, int y)
 	}
 }
 
+/*----------------------
+ | menuBlit2bpp
+ | Description: Draws a 2bpp bitmap whose values are shades 1..3, writing
+ |   base + shade - 1, clipped to the page. Shade 0 is left untouched.
+ | Author: suinevere
+ | Params: page -- MENU_PAGE_SIZE bytes; art -- the bitmap; x, y -- top-left
+ |         corner in pixels; base -- palette index the shades are measured from
+ | Returns: N/A
+ ----------------------*/
 void menuBlit2bpp(uint8_t *page, const MenuArt *art, int x, int y, uint8_t base)
 {
 	const int pitch = (art->w + 3) >> 2;
