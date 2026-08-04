@@ -69,6 +69,16 @@ void sat_video_get_palette(uint8_t *out);
 void sat_video_present(const uint8_t *page);
 
 /*----------------------
+ | sat_video_sync
+ | Description: Waits one vblank without touching the framebuffer, so a caller can
+ |   hold an already-presented frame for more than one field.
+ | Author: suinevere
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void sat_video_sync(void);
+
+/*----------------------
  | SAT_PAD_*
  | Description: Bits returned by sat_input_read.
  | Author: suinevere

@@ -8,7 +8,7 @@
  |   RAM.
  | Author: suinevere
  | Dependencies: menu.h, engine.h, sys.h, video.h, menu_draw.h, menu_blit.h,
- |   menu_art.h, savedata.h, saturn_backup.h, saturn_platform.h
+ |   menu_art.h, savedata.h, saturn_backup.h, saturn_platform.h, opening.h
  | Globals: s_menuPage
  ----------------------*/
 #include "menu.h"
@@ -21,6 +21,7 @@
 #include "savedata.h"
 #include "saturn_backup.h"
 #include "saturn_platform.h"
+#include "opening.h"
 
 extern "C" {
 #include <string.h>
@@ -707,6 +708,8 @@ void Menu::titleAnimate() {
 bool Menu::runTitle() {
 	menuStateEnterTitle(&_st);
 	_statusError = SAT_BUP_OK;
+
+	openingPlay(_sys, _page);
 
 	titleAnimate();
 	menuRenderTitleFrame(_page, _sys, &_st, _boltIndex, _boltFrame);

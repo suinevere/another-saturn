@@ -256,6 +256,12 @@ extern "C" void sat_video_present(const uint8_t *page)
     SRL::Core::Synchronize();
 }
 
+extern "C" void sat_video_sync(void)
+{
+    sat_audio_update();
+    SRL::Core::Synchronize();
+}
+
 extern "C" uint32_t sat_input_read(void)
 {
     uint32_t bits = 0;
