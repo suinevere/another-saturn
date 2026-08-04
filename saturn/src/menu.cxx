@@ -36,10 +36,9 @@ static uint8_t s_menuPage[MENU_PAGE_SIZE];
 
 /*----------------------
  | MENU_BASE_DIM / MENU_BASE_SEL / MENU_COL_PANEL / MENU_COL_BORDER
- | Description: Palette indices the menu draws with. Selection is a base index
- |   rather than a second colour: the same artwork renders unselected at base 8
- |   and selected at base 12, and only entries 12..14 are rewritten to pulse, so
- |   the logo at base 4 stays still.
+ | Description: Palette indices the menu draws with; selection is a base index
+ |   rather than a second colour, so unselected art renders at base 8 and
+ |   selected art at base 12 with no separate copy.
  | Author: suinevere
  ----------------------*/
 enum {
@@ -398,9 +397,8 @@ static void menuRescan(MenuState *st) {
 
 /*----------------------
  | menuDrawTitleScreen
- | Description: Paints the title card: the wordmark and the two entry points.
- |   The selected row is drawn from the strobe ramp rather than marked with a
- |   cursor glyph, which is how the Mega Drive screen shows it.
+ | Description: Paints the title card -- wordmark and two entry points, the
+ |   selected one shown by ramp rather than a cursor glyph.
  | Author: suinevere
  | Params: page -- compositing page; st -- state, for the cursor position
  | Returns: N/A
