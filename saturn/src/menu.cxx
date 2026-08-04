@@ -588,16 +588,28 @@ static int menuBoltX(int index) {
 }
 
 /*----------------------
+ | MENU_STROBE_HOLD_FRAMES
+ | Description: How many rendered frames each strobe table row holds, so a
+ |   full triangle cycle spans (MENU_ART_STROBE_LEVELS * 2 - 2) rows times
+ |   this many frames.
+ | Author: suinevere
+ ----------------------*/
+enum {
+	MENU_STROBE_HOLD_FRAMES = 3
+};
+
+/*----------------------
  | menuStrobeLevel
- | Description: Maps a frame counter to a strobe table row, walking up and
- |   back down so the pulse has no seam.
+ | Description: Maps a frame counter to a strobe table row, holding each row
+ |   for MENU_STROBE_HOLD_FRAMES frames while walking up and back down so the
+ |   pulse has no seam.
  | Author: suinevere
  | Params: frame -- free-running frame counter
  | Returns: a row index, 0..MENU_ART_STROBE_LEVELS - 1
  ----------------------*/
 static int menuStrobeLevel(int frame) {
 	const int span = MENU_ART_STROBE_LEVELS * 2 - 2;
-	int p = frame % span;
+	int p = (frame / MENU_STROBE_HOLD_FRAMES) % span;
 	if (p < 0) {
 		p += span;
 	}
