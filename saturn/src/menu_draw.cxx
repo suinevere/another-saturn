@@ -138,10 +138,7 @@ void menuDrawDimPalette(const uint8_t *src, uint8_t *dst, int keepIndex)
 /*----------------------
  | menuFreezeRemap
  | Description: Collapses a frozen game frame onto palette indices 0..3 by
- |   luminance, in place. This is what frees entries 4..15 for artwork while a
- |   menu sits over a paused game: the backdrop stops needing the game's own
- |   sixteen colours. Colours in the darkest quarter map to 0, so a dark scene
- |   goes true black rather than reading as noise behind the panel.
+ |   luminance, in place, freeing indices 4..15 for menu artwork.
  | Author: suinevere
  | Params: page -- MENU_PAGE_SIZE bytes, remapped in place; srcPalette --
  |         32 bytes, the game palette the page was drawn against
