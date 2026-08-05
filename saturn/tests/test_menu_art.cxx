@@ -255,7 +255,11 @@ static void test_freeze_remap_touches_both_nibbles(void)
 
 static void test_backdrop_uses_only_logo_palette(void)
 {
-    const uint8_t allowed[] = { 0, 4, 5, 6, 15 };
+    /* 0, 4-6 and 15 the backdrop shares with the wordmark and the bolts; 1-3
+       and 11 are its own, free while the title screen is up. 7-10 and 12-14
+       must stay clear: the menu draws START GAME and LOAD GAME at those bases
+       straight over the backdrop. */
+    const uint8_t allowed[] = { 0, 1, 2, 3, 4, 5, 6, 11, 15 };
 
     for (int i = 0; i < MENU_PAGE_SIZE; ++i) {
         uint8_t hi = MENU_ART_TITLE_BACKDROP[i] >> 4;
@@ -270,6 +274,37 @@ static void test_backdrop_uses_only_logo_palette(void)
 
         CHECK_EQ(hiOk, true);
         CHECK_EQ(loOk, true);
+    }
+}
+
+static void test_title_palette_only_moves_the_backdrop_ramp(void)
+{
+    /* Entries 1-3 double as the pause screen's freeze ramp, so the backdrop's
+       values for them must live in the title copy and nowhere else. */
+    for (int i = 0; i < 16; ++i) {
+        const bool ownedByBackdrop = (i >= 1 && i <= 3) || i == 11;
+        const bool same = MENU_ART_TITLE_PALETTE[i * 2] == MENU_ART_PALETTE[i * 2] &&
+                          MENU_ART_TITLE_PALETTE[i * 2 + 1] == MENU_ART_PALETTE[i * 2 + 1];
+        if (!ownedByBackdrop) {
+            CHECK_EQ(same, true);
+        }
+    }
+}
+
+static void test_title_palette_ramp_climbs(void)
+{
+    /* The four slots exist to fill the gap the shared ones leave, so they have
+       to be ordered: a flat or inverted ramp would put the holes back. */
+    const uint8_t ramp[] = { 1, 2, 3, 11 };
+
+    for (int i = 1; i < (int)(sizeof(ramp) / sizeof(ramp[0])); ++i) {
+        const int prev = (MENU_ART_TITLE_PALETTE[ramp[i - 1] * 2] & 0x0F) +
+                         ((MENU_ART_TITLE_PALETTE[ramp[i - 1] * 2 + 1] & 0xF0) >> 4) +
+                         (MENU_ART_TITLE_PALETTE[ramp[i - 1] * 2 + 1] & 0x0F);
+        const int cur = (MENU_ART_TITLE_PALETTE[ramp[i] * 2] & 0x0F) +
+                        ((MENU_ART_TITLE_PALETTE[ramp[i] * 2 + 1] & 0xF0) >> 4) +
+                        (MENU_ART_TITLE_PALETTE[ramp[i] * 2 + 1] & 0x0F);
+        CHECK_EQ(cur > prev, 1);
     }
 }
 
@@ -306,6 +341,8 @@ int main(void)
     test_freeze_remap_darkest_becomes_black();
     test_freeze_remap_touches_both_nibbles();
     test_backdrop_uses_only_logo_palette();
+    test_title_palette_only_moves_the_backdrop_ramp();
+    test_title_palette_ramp_climbs();
     test_text_renders_at_base_plus_two();
 
     if (g_fail != 0) {

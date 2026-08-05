@@ -25,8 +25,9 @@ enum {
 /*----------------------
  | MENU_ART_TITLE_BACKDROP
  | Description: The last frame the opening plays, before its loop fade to black,
- |   as a full 320x200 4bpp page using only the palette slots the artwork ramp
- |   already owns so the menu can draw straight over it.
+ |   as a full 320x200 4bpp page on slots 0-6, 11 and 15 -- the ones the
+ |   wordmark and the bolts already own plus the four MENU_ART_TITLE_PALETTE
+ |   frees, leaving 7-10 and 12-14 clear for the menu to draw straight over it.
  | Author: suinevere
  ----------------------*/
 extern const uint8_t MENU_ART_TITLE_BACKDROP[32000];
@@ -63,6 +64,16 @@ extern const MenuArt MENU_ART_LOAD_GAME;
  | Author: suinevere
  ----------------------*/
 extern const uint8_t MENU_ART_PALETTE[32];
+
+/*----------------------
+ | MENU_ART_TITLE_PALETTE
+ | Description: MENU_ART_PALETTE with entries 1, 2, 3 and 11 replaced by the
+ |   backdrop's own ramp. Those four are free while the title screen is up, but
+ |   1-3 are the pause screen's freeze ramp, so the title takes a copy rather
+ |   than moving them for every screen.
+ | Author: suinevere
+ ----------------------*/
+extern const uint8_t MENU_ART_TITLE_PALETTE[32];
 
 /*----------------------
  | MENU_ART_STROBE

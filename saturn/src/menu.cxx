@@ -64,6 +64,20 @@ enum {
 };
 
 /*----------------------
+ | MENU_BOLT_FRAMES / MENU_BOLT_GAP_MIN / MENU_BOLT_GAP_SPAN
+ | Description: Lightning timing in frames at 60 Hz: how long one strike is on
+ |   screen, and the shortest and the width of the random wait between strikes.
+ |   The span is kept narrow deliberately -- a wide one reads as the effect
+ |   stalling on some strikes rather than as weather.
+ | Author: suinevere
+ ----------------------*/
+enum {
+	MENU_BOLT_FRAMES   = 3,
+	MENU_BOLT_GAP_MIN  = 24,
+	MENU_BOLT_GAP_SPAN = 42
+};
+
+/*----------------------
  | MENU_PAD_*
  | Description: One frame of menu input, collapsed to a bitmask so edges and
  |   auto-repeat can be computed with plain bit arithmetic.
@@ -259,7 +273,7 @@ void Menu::init(Engine *e) {
 	_devicesProbed = false;
 	_frame = 0;
 	_rng = 0xACE1;
-	_boltTimer = 120;
+	_boltTimer = MENU_BOLT_GAP_MIN;
 	_boltFrame = -1;
 	_boltIndex = 0;
 
@@ -618,18 +632,27 @@ static int menuStrobeLevel(int frame) {
 }
 
 /*----------------------
+ | MENU_BOLT_LIFT
+ | Description: How far toward white each frame of a strike pushes the palette.
+ |   Decaying rather than cutting out early keeps the last frame of bolt art
+ |   from sitting on screen unlit.
+ | Author: suinevere
+ ----------------------*/
+static const int MENU_BOLT_LIFT[MENU_BOLT_FRAMES] = { 8, 4, 2 };
+
+/*----------------------
  | menuTitlePalette
  | Description: Builds the title screen's palette for one frame -- artwork
- |   entries as authored, entries 12..14 from the strobe table, and (while a
- |   bolt is on screen) every entry 1..14 pushed toward white, overriding the
- |   strobe for those three frames.
+ |   entries from MENU_ART_TITLE_PALETTE, entries 12..14 from the strobe table,
+ |   and (while a bolt is on screen) every entry 1..14 pushed toward white,
+ |   overriding the strobe for those three frames.
  | Author: suinevere
  | Params: out -- 32 bytes; frame -- frame counter, for the strobe phase;
  |         boltFrame -- 0, 1 or 2 while a bolt is lit, negative otherwise
  | Returns: N/A
  ----------------------*/
 static void menuTitlePalette(uint8_t *out, int frame, int boltFrame) {
-	memcpy(out, MENU_ART_PALETTE, 32);
+	memcpy(out, MENU_ART_TITLE_PALETTE, 32);
 
 	const uint8_t *row = MENU_ART_STROBE[menuStrobeLevel(frame)];
 	for (int i = 0; i < 3; ++i) {
@@ -637,11 +660,11 @@ static void menuTitlePalette(uint8_t *out, int frame, int boltFrame) {
 		out[(12 + i) * 2 + 1] = row[i * 2 + 1];
 	}
 
-	if (boltFrame < 0 || boltFrame > 1) {
+	if (boltFrame < 0 || boltFrame >= MENU_BOLT_FRAMES) {
 		return;
 	}
 
-	const int lift = (boltFrame == 0) ? 8 : 4;
+	const int lift = MENU_BOLT_LIFT[boltFrame];
 	for (int i = 1; i < 15; ++i) {
 		int r = (out[i * 2] & 0x0F) + lift;
 		int g = ((out[i * 2 + 1] & 0xF0) >> 4) + lift;
@@ -679,9 +702,10 @@ void Menu::titleAnimate() {
 
 	if (_boltFrame >= 0) {
 		_boltFrame++;
-		if (_boltFrame >= 3) {
+		if (_boltFrame >= MENU_BOLT_FRAMES) {
 			_boltFrame = -1;
-			_boltTimer = 120 + (int)(menuNextRandom(&_rng) % 181);
+			_boltTimer = MENU_BOLT_GAP_MIN +
+			             (int)(menuNextRandom(&_rng) % MENU_BOLT_GAP_SPAN);
 		}
 	} else {
 		_boltTimer--;

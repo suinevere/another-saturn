@@ -28,6 +28,13 @@ STROBE_ENTRIES = [12, 13, 14]
 STROBE_LEVELS = 16
 STROBE_FLOOR = 0.55
 
+# Slots the backdrop may use. 0, 4-6 and 15 it shares with the wordmark and the
+# bolts; 1-3 and 11 are free on the title screen only -- 1-3 are the pause
+# screen's freeze ramp, so the backdrop's values for them go in a title-only
+# copy of the palette rather than displacing them everywhere.
+BACKDROP_FIXED_SLOTS = [0, 4, 5, 6, 15]
+BACKDROP_FREE_SLOTS = [1, 2, 3, 11]
+
 
 def quantise(im, colours):
     """Snap an RGB image onto an exact colour list, no dithering."""
@@ -89,13 +96,71 @@ def emit_public_array(f, name, data):
     f.write("};\n\n")
 
 
-# Shares LOGO_COLOURS rather than restating them, so a future palette retune
-# to LOGO_COLOURS cannot silently desync the backdrop from the menu text.
-BACKDROP_SLOTS = [(0, (0, 0, 0))] + list(zip([4, 5, 6], LOGO_COLOURS)) + [(15, (0xFF, 0xFF, 0xFF))]
+def widen4(v):
+    """A 4-bit channel as saturn_platform widens it on the way into CRAM."""
+    f = (v << 1) | (v >> 3)
+    return (f << 3) | (f >> 2)
+
+
+def narrow8(c):
+    """8-bit RGB back to the 4-bit triple the palette table stores."""
+    return tuple(min(15, max(0, int(round(v / 255.0 * 15)))) for v in c)
+
+
+def slot_rgb(index):
+    """What palette slot `index` actually reaches the screen as."""
+    _, r, g, b = PALETTE[index]
+    return (widen4(r), widen4(g), widen4(b))
+
+
+def nearest(colour, table):
+    """Index into `table` of the entry closest to `colour` in RGB."""
+    best, at = None, 0
+    for i, c in enumerate(table):
+        d = (colour[0] - c[0]) ** 2 + (colour[1] - c[1]) ** 2 + (colour[2] - c[2]) ** 2
+        if best is None or d < best:
+            best, at = d, i
+    return at
+
+
+def fit_free_slots(hist, fixed):
+    """k-means over the free slots with the shared ones frozen, on the 4-bit grid.
+
+    The five shared slots leave wide luminance gaps -- nothing between the
+    brightest wordmark teal and white, nothing between black and the darkest --
+    and the frame lands in both, so nearest-colour snapping punched black
+    through the chrome strokes' cores and the credit line's small glyphs.
+    Seeds are spread evenly across the range rather than over the pixel
+    distribution, which is 84% near-black and would put every seed in the dark.
+    """
+    n = len(BACKDROP_FREE_SLOTS)
+    free = [tuple(widen4(v) for v in narrow8(((i + 1) * 255 // (n + 1),) * 3))
+            for i in range(n)]
+
+    for _ in range(32):
+        sums = [[0, 0, 0, 0] for _ in range(n)]
+        for colour, count in hist:
+            at = nearest(colour, fixed + free)
+            if at < len(fixed):
+                continue
+            s = sums[at - len(fixed)]
+            for k in range(3):
+                s[k] += colour[k] * count
+            s[3] += count
+        moved = list(free)
+        for j, s in enumerate(sums):
+            if s[3] == 0:
+                continue
+            mean = tuple(s[k] // s[3] for k in range(3))
+            moved[j] = tuple(widen4(v) for v in narrow8(mean))
+        if moved == free:
+            break
+        free = moved
+    return free
 
 
 def build_backdrop():
-    """The opening's last played frame (LAST_FRAME), quantised onto the slots the logo already uses."""
+    """The opening's last played frame (LAST_FRAME) on the nine slots the title screen can spare."""
     from PIL import ImageSequence
     src = Image.open(os.path.join(ROOT, "images", "genesis-opening.gif"))
     target = None
@@ -105,20 +170,23 @@ def build_backdrop():
             break
     img = target.resize((320, 240), Image.BOX).crop((0, 0, 320, 200))
 
-    cols = [c for _, c in BACKDROP_SLOTS]
-    q = quantise(img, cols)
-    px = q.load()
-    idx = {c: i for i, c in BACKDROP_SLOTS}
+    hist = [(c, n) for n, c in img.getcolors(1 << 18)]
+    fixed = [slot_rgb(i) for i in BACKDROP_FIXED_SLOTS]
+    free = fit_free_slots(hist, fixed)
 
+    slots = BACKDROP_FIXED_SLOTS + BACKDROP_FREE_SLOTS
+    lut = {c: slots[nearest(c, fixed + free)] for c, _ in hist}
+
+    px = img.load()
     pitch = 160
     buf = bytearray(pitch * 200)
     for y in range(200):
         row = y * pitch
         for x in range(0, 320, 2):
-            a = idx[px[x, y]]
-            b = idx[px[x + 1, y]]
+            a = lut[px[x, y]]
+            b = lut[px[x + 1, y]]
             buf[row + (x >> 1)] = ((a & 0xF) << 4) | (b & 0xF)
-    return bytes(buf)
+    return bytes(buf), dict(zip(BACKDROP_FREE_SLOTS, (narrow8(c) for c in free)))
 
 
 def build_bolts():
@@ -170,7 +238,7 @@ def build_strobe():
 
 
 def main():
-    backdrop = build_backdrop()
+    backdrop, titleRamp = build_backdrop()
     bolts = build_bolts()
     strings = build_strings()
     strobe = build_strobe()
@@ -202,6 +270,13 @@ def main():
 
         f.write("const uint8_t MENU_ART_PALETTE[32] = {\n")
         for _, r, g, b in PALETTE:
+            f.write("\t0x%02X, 0x%02X,\n" % (r, (g << 4) | b))
+        f.write("};\n\n")
+
+        f.write("const uint8_t MENU_ART_TITLE_PALETTE[32] = {\n")
+        for i, r, g, b in PALETTE:
+            if i in titleRamp:
+                r, g, b = titleRamp[i]
             f.write("\t0x%02X, 0x%02X,\n" % (r, (g << 4) | b))
         f.write("};\n\n")
 
