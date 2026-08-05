@@ -271,10 +271,6 @@ extern "C" void sat_video_present(const uint8_t *page)
     // Bank::unpack and sat_cd_open that keep them running during loads.
     sat_audio_update();
 
-    // Wait for vblank first, then do the writes: this is what one present
-    // costs (exactly one vblank), and it puts the CRAM write and the page DMA
-    // both inside the blanking window that follows, so the DMA starts at the
-    // top of the frame and races ahead of the beam instead of crossing it.
     SRL::Core::Synchronize();
 
     sat_video_flush_palette();
@@ -299,9 +295,6 @@ extern "C" void sat_video_sync(void)
 {
     sat_audio_update();
     SRL::Core::Synchronize();
-
-    // A caller may have set a palette and then held the frame with sync calls
-    // instead of presenting again; flushing here keeps it from stranding.
     sat_video_flush_palette();
 }
 
