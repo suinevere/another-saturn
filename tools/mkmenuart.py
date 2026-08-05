@@ -89,8 +89,9 @@ def emit_public_array(f, name, data):
     f.write("};\n\n")
 
 
-BACKDROP_SLOTS = [(0, (0, 0, 0)), (4, (0x00, 0x48, 0x49)), (5, (0x25, 0x6C, 0x6E)),
-                  (6, (0x49, 0x90, 0x93)), (15, (0xFF, 0xFF, 0xFF))]
+# Shares LOGO_COLOURS rather than restating them, so a future palette retune
+# to LOGO_COLOURS cannot silently desync the backdrop from the menu text.
+BACKDROP_SLOTS = [(0, (0, 0, 0))] + list(zip([4, 5, 6], LOGO_COLOURS)) + [(15, (0xFF, 0xFF, 0xFF))]
 
 
 def build_backdrop():
