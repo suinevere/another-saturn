@@ -8,7 +8,7 @@ Usage: python tools/mkopening.py
 """
 import os
 import struct
-from PIL import Image, ImageSequence
+from PIL import Image, ImageFilter, ImageSequence
 from opening_frames import LAST_FRAME
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,30 +20,65 @@ PAGE = (W // 2) * H          # 32000
 NATIVE_H = 240               # 640x480 box-downsamples to 320x240
 KEYFRAMES = None             # filled in once the frame count is known
 
+# The wordmark's strokes are one 640x480 pixel wide, so the 2:1 reduction
+# averages each with the black beside it and halves its brightness; without the
+# lift, neighbouring stroke pixels land in different slots and the stroke comes
+# out dashed. MEDIAN runs at 640x480, where a stroke is still two pixels wide
+# and survives it, and clears the capture's dither before it can become speckle.
+GAMMA = 0.55
+MEDIAN = 3
+
+# Median cut allocates by population, and these frames are five-sixths black, so
+# it spends four to six of sixteen slots on duplicates of black and leaves the
+# lit end of the ramp with almost nothing. Holding index 0 for the background and
+# fitting the other fifteen to the ink only is what keeps the three lit states --
+# blue, green, and the lightning flash -- distinct from each other.
+DARK_SUM = 24
+
 
 def load_frames():
-    """Box-downsample each GIF frame to 320x240 and take the top 200 rows, stopping at LAST_FRAME."""
+    """Denoise, box-downsample and lift each GIF frame, stopping at LAST_FRAME."""
+    curve = [min(255, int(255.0 * (v / 255.0) ** GAMMA + 0.5)) for v in range(256)]
     im = Image.open(SRC)
     out = []
     for i, fr in enumerate(ImageSequence.Iterator(im)):
         if i > LAST_FRAME:
             break
-        rgb = fr.convert("RGB").resize((W, NATIVE_H), Image.BOX)
-        out.append(rgb.crop((0, 0, W, H)))
+        rgb = fr.convert("RGB").filter(ImageFilter.MedianFilter(MEDIAN))
+        rgb = rgb.resize((W, NATIVE_H), Image.BOX).crop((0, 0, W, H))
+        out.append(rgb.point(curve * 3))
     return out
 
 
-def quantise(img):
-    """16 colours, no dithering. Returns (indexed image, 32-byte palette)."""
-    q = img.quantize(colors=16, method=Image.MEDIANCUT, dither=Image.NONE)
-    raw = q.getpalette()[: 16 * 3]
-    raw += [0] * (16 * 3 - len(raw))
+def pack_palette(colours):
     pal = bytearray(32)
-    for i in range(16):
-        r, g, b = raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]
+    for i, (r, g, b) in enumerate(colours[:16]):
         pal[i * 2] = r >> 4
         pal[i * 2 + 1] = ((g >> 4) << 4) | (b >> 4)
-    return q, bytes(pal)
+    return bytes(pal)
+
+
+def quantise(img):
+    """Index 0 for the background, fifteen fitted to the ink. No dithering.
+    Returns (indexed image, 32-byte palette)."""
+    px = img.load()
+    ink = [px[x, y] for y in range(H) for x in range(W) if sum(px[x, y]) > DARK_SUM]
+    if not ink:
+        ink = [(0, 0, 0)]
+
+    strip = Image.new("RGB", (len(ink), 1))
+    strip.putdata(ink)
+    fitted = strip.quantize(colors=15, method=Image.MEDIANCUT, dither=Image.NONE)
+    raw = fitted.getpalette()[: 15 * 3]
+    raw += [0] * (15 * 3 - len(raw))
+    colours = [(0, 0, 0)] + [(raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]) for i in range(15)]
+
+    ref = Image.new("P", (1, 1))
+    flat = []
+    for c in colours:
+        flat += list(c)
+    ref.putpalette(flat + [0, 0, 0] * (256 - len(colours)))
+    return img.quantize(palette=ref, dither=Image.NONE), pack_palette(colours)
 
 
 def pack4(q):
