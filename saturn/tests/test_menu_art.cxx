@@ -253,6 +253,26 @@ static void test_freeze_remap_touches_both_nibbles(void)
     CHECK_EQ(g_page[0] & 0x0F, 0);
 }
 
+static void test_backdrop_uses_only_logo_palette(void)
+{
+    const uint8_t allowed[] = { 0, 4, 5, 6, 15 };
+
+    for (int i = 0; i < MENU_PAGE_SIZE; ++i) {
+        uint8_t hi = MENU_ART_TITLE_BACKDROP[i] >> 4;
+        uint8_t lo = MENU_ART_TITLE_BACKDROP[i] & 0x0F;
+
+        bool hiOk = false;
+        bool loOk = false;
+        for (int a = 0; a < (int)(sizeof(allowed) / sizeof(allowed[0])); ++a) {
+            if (hi == allowed[a]) hiOk = true;
+            if (lo == allowed[a]) loOk = true;
+        }
+
+        CHECK_EQ(hiOk, true);
+        CHECK_EQ(loOk, true);
+    }
+}
+
 static void test_text_renders_at_base_plus_two(void)
 {
     static uint8_t font[96 * 8];
@@ -285,6 +305,7 @@ int main(void)
     test_freeze_remap_uniform_palette_is_uniform();
     test_freeze_remap_darkest_becomes_black();
     test_freeze_remap_touches_both_nibbles();
+    test_backdrop_uses_only_logo_palette();
     test_text_renders_at_base_plus_two();
 
     if (g_fail != 0) {
