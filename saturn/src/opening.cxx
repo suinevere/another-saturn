@@ -147,7 +147,7 @@ void openingPlay(System *sys, uint8_t *page)
 		const int32_t end = (i + 1 < count) ? (int32_t)s_offsets[i + 1] : fileSize;
 		const int32_t need = end - start;
 
-		if (start > ringPos) {
+		if (start > ringPos && start < ringPos + ringLen) {
 			const int32_t drop = start - ringPos;
 			memmove(s_ring, s_ring + drop, ringLen - drop);
 			ringLen -= drop;
