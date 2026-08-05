@@ -35,6 +35,24 @@ STROBE_FLOOR = 0.55
 BACKDROP_FIXED_SLOTS = [0, 4, 5, 6, 15]
 BACKDROP_FREE_SLOTS = [1, 2, 3, 11]
 
+# The wordmark's strokes are one 640x480 pixel wide, so the 2:1 box reduction
+# averages each of them with the black beside it and halves its brightness.
+# Half-bright pixels snap to whichever slot they happen to be nearer and the
+# stroke comes out dashed. Lifting the mid-tones puts the whole stroke back in
+# the same slot; it is applied to the backdrop only, after the reduction.
+BACKDROP_GAMMA = 0.55
+
+# The GIF is a capture, and its dither noise survives the reduction as speckle
+# along those same strokes. The card is held still for a while before the loop,
+# so every frame that matches the last one is another sample of it: averaging
+# them cancels the noise where a spatial filter would soften the strokes. The
+# threshold is a mean absolute difference per sampled byte, low enough that a
+# frame with a different bolt in it never gets in. MEDIAN is applied at 640x480
+# afterwards, where a stroke is still two pixels wide and survives it.
+BACKDROP_MATCH_MAD = 1.0
+BACKDROP_MATCH_STRIDE = 101
+BACKDROP_MEDIAN = 3
+
 
 def quantise(im, colours):
     """Snap an RGB image onto an exact colour list, no dithering."""
@@ -159,16 +177,45 @@ def fit_free_slots(hist, fixed):
     return free
 
 
-def build_backdrop():
-    """The opening's last played frame (LAST_FRAME) on the nine slots the title screen can spare."""
+def held_card():
+    """Every frame up to LAST_FRAME that shows the same card as it, averaged."""
     from PIL import ImageSequence
-    src = Image.open(os.path.join(ROOT, "images", "genesis-opening.gif"))
-    target = None
+    path = os.path.join(ROOT, "images", "genesis-opening.gif")
+
+    src = Image.open(path)
+    ref = None
     for i, fr in enumerate(ImageSequence.Iterator(src)):
         if i == LAST_FRAME:
-            target = fr.convert("RGB")
+            ref = fr.convert("RGB")
             break
-    img = target.resize((320, 240), Image.BOX).crop((0, 0, 320, 200))
+    raw = ref.tobytes()
+    at = range(0, len(raw), BACKDROP_MATCH_STRIDE)
+
+    acc = [0] * len(raw)
+    kept = 0
+    src = Image.open(path)
+    for i, fr in enumerate(ImageSequence.Iterator(src)):
+        if i > LAST_FRAME:
+            break
+        cur = fr.convert("RGB").tobytes()
+        mad = sum(abs(cur[k] - raw[k]) for k in at) / float(len(at))
+        if mad >= BACKDROP_MATCH_MAD:
+            continue
+        for k in range(len(acc)):
+            acc[k] += cur[k]
+        kept += 1
+
+    print("backdrop: averaged %d frames matching frame %d" % (kept, LAST_FRAME))
+    return Image.frombytes("RGB", ref.size, bytes(v // kept for v in acc))
+
+
+def build_backdrop():
+    """The opening's last card on the nine slots the title screen can spare."""
+    from PIL import ImageFilter
+    card = held_card().filter(ImageFilter.MedianFilter(BACKDROP_MEDIAN))
+    img = card.resize((320, 240), Image.BOX).crop((0, 0, 320, 200))
+    curve = [min(255, int(255.0 * (v / 255.0) ** BACKDROP_GAMMA + 0.5)) for v in range(256)]
+    img = img.point(curve * 3)
 
     hist = [(c, n) for n, c in img.getcolors(1 << 18)]
     fixed = [slot_rgb(i) for i in BACKDROP_FIXED_SLOTS]
