@@ -53,6 +53,14 @@ static SRL::Bitmap::Palette g_palette(g_paletteColors, 16);
 static uint8_t g_paletteRaw[32];
 
 /*----------------------
+ | g_paletteDirty
+ | Description: Set by sat_video_set_palette when g_paletteColors holds a
+ |   conversion not yet written to CRAM; cleared by sat_video_flush_palette.
+ | Author: suinevere
+ ----------------------*/
+static bool g_paletteDirty = false;
+
+/*----------------------
  | g_vram
  | Description: Where NBG0's bitmap lives in VDP2 VRAM, captured after setup so
  |   each frame can be written straight there.
@@ -199,10 +207,35 @@ extern "C" void sat_video_set_palette(const uint8_t *colors)
                                                    (uint8_t)((b << 1) | (b >> 3)));
     }
 
+    // CRAM is not touched here -- writing it now would recolour whatever page
+    // is still on screen from last frame. sat_video_present (or, failing
+    // that, sat_video_sync) writes it during the vblank window instead.
+    g_paletteDirty = true;
+}
+
+/*----------------------
+ | sat_video_flush_palette
+ | Description: Writes a pending palette to CRAM and clears the dirty flag; a
+ |   no-op if nothing is pending.
+ | Author: suinevere
+ | Dependencies: SRL (VDP2)
+ | Globals: g_paletteDirty, g_paletteColors
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void sat_video_flush_palette(void)
+{
+    if (!g_paletteDirty)
+    {
+        return;
+    }
+
     if (SRL::VDP2::NBG0::TilePalette.GetData() != nullptr)
     {
         SRL::VDP2::NBG0::TilePalette.Load(g_paletteColors, 16);
     }
+
+    g_paletteDirty = false;
 }
 
 /*----------------------
@@ -232,6 +265,20 @@ extern "C" void sat_video_get_palette(uint8_t *out)
 
 extern "C" void sat_video_present(const uint8_t *page)
 {
+    // The sequencer tick. It is no longer an audio pump -- the SCSP plays from
+    // its own memory whatever the engine is doing -- but SfxPlayer's timers
+    // still advance the music from here, and from the pump points in
+    // Bank::unpack and sat_cd_open that keep them running during loads.
+    sat_audio_update();
+
+    // Wait for vblank first, then do the writes: this is what one present
+    // costs (exactly one vblank), and it puts the CRAM write and the page DMA
+    // both inside the blanking window that follows, so the DMA starts at the
+    // top of the frame and races ahead of the beam instead of crossing it.
+    SRL::Core::Synchronize();
+
+    sat_video_flush_palette();
+
     if (page != nullptr && g_vram != nullptr)
     {
         const uint8_t *src = page;
@@ -246,20 +293,16 @@ extern "C" void sat_video_present(const uint8_t *page)
 
         slDMAWait();
     }
-
-    // The sequencer tick. It is no longer an audio pump -- the SCSP plays from
-    // its own memory whatever the engine is doing -- but SfxPlayer's timers
-    // still advance the music from here, and from the pump points in
-    // Bank::unpack and sat_cd_open that keep them running during loads.
-    sat_audio_update();
-
-    SRL::Core::Synchronize();
 }
 
 extern "C" void sat_video_sync(void)
 {
     sat_audio_update();
     SRL::Core::Synchronize();
+
+    // A caller may have set a palette and then held the frame with sync calls
+    // instead of presenting again; flushing here keeps it from stranding.
+    sat_video_flush_palette();
 }
 
 extern "C" uint32_t sat_input_read(void)

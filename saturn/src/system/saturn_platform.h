@@ -38,7 +38,8 @@ void sat_video_init(void);
 
 /*----------------------
  | sat_video_set_palette
- | Description: Uploads the engine's 16-colour palette to CRAM.
+ | Description: Caches the engine's 16-colour palette and marks it pending; the
+ |   CRAM write happens at the next sat_video_present or sat_video_sync.
  | Author: suinevere
  | Params: colors -- 32 bytes, 16 entries of 2 bytes, 4 bits per channel:
  |   R = byte0 & 0x0F, G = (byte1 & 0xF0) >> 4, B = byte1 & 0x0F
@@ -61,8 +62,8 @@ void sat_video_get_palette(uint8_t *out);
 
 /*----------------------
  | sat_video_present
- | Description: Pushes one finished engine page to the screen and waits for the
- |   next frame.
+ | Description: Waits for the next vblank, then flushes any pending palette and
+ |   DMAs one finished engine page to the screen before the beam resumes.
  | Author: suinevere
  | Params: page -- 32,000 bytes, 320x200 at 4bpp, high nibble = left pixel
  ----------------------*/
@@ -70,8 +71,9 @@ void sat_video_present(const uint8_t *page);
 
 /*----------------------
  | sat_video_sync
- | Description: Waits one vblank without touching the framebuffer, so a caller can
- |   hold an already-presented frame for more than one field.
+ | Description: Waits one vblank without touching the framebuffer, flushing any
+ |   pending palette so a caller can hold an already-presented frame for more
+ |   than one field without stranding it.
  | Author: suinevere
  | Params: N/A
  | Returns: N/A
