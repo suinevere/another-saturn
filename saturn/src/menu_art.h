@@ -19,7 +19,8 @@
  ----------------------*/
 enum {
 	MENU_ART_BOLT_COUNT   = 3,
-	MENU_ART_STROBE_LEVELS = 16
+	MENU_ART_STROBE_LEVELS = 16,
+	MENU_ART_TITLE_STATES = 2
 };
 
 /*----------------------
@@ -67,13 +68,16 @@ extern const uint8_t MENU_ART_PALETTE[32];
 
 /*----------------------
  | MENU_ART_TITLE_PALETTE
- | Description: MENU_ART_PALETTE with entries 1, 2, 3 and 11 replaced by the
- |   backdrop's own ramp. Those four are free while the title screen is up, but
- |   1-3 are the pause screen's freeze ramp, so the title takes a copy rather
- |   than moving them for every screen.
+ | Description: One palette per flicker state -- MENU_ART_PALETTE with entries
+ |   1, 2, 3 and 11 replaced by the backdrop's ramp, then that ramp and the
+ |   wordmark's own 4, 5, 6 and 15 tinted for the state. State 0 is the lit
+ |   green, state 1 the dark blue. Entries 7-10 and 12-14 match
+ |   MENU_ART_PALETTE in both, so the menu entries hold still while the logo
+ |   flickers. 1-3 are also the pause screen's freeze ramp, which is why the
+ |   title takes a copy rather than moving them for every screen.
  | Author: suinevere
  ----------------------*/
-extern const uint8_t MENU_ART_TITLE_PALETTE[32];
+extern const uint8_t MENU_ART_TITLE_PALETTE[MENU_ART_TITLE_STATES][32];
 
 /*----------------------
  | MENU_ART_STROBE

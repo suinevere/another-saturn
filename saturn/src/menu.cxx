@@ -78,6 +78,30 @@ enum {
 };
 
 /*----------------------
+ | MENU_TITLE_FLICKER_FRAMES
+ | Description: Frames each wordmark colour state is held for. The intro
+ |   changes state every three or four of its 25 fps frames, which is nine
+ |   fields here.
+ | Author: suinevere
+ ----------------------*/
+enum {
+	MENU_TITLE_FLICKER_FRAMES = 9
+};
+
+/*----------------------
+ | MENU_TITLE_START_Y / MENU_TITLE_ROW_STEP
+ | Description: Where the two title entries sit, in scanlines. They live in the
+ |   band the backdrop's credit block used to occupy -- the wordmark ends at
+ |   row 130 and the generator clears rows 131 to 164, so the first entry starts
+ |   below both.
+ | Author: suinevere
+ ----------------------*/
+enum {
+	MENU_TITLE_START_Y  = 136,
+	MENU_TITLE_ROW_STEP = 24
+};
+
+/*----------------------
  | MENU_PAD_*
  | Description: One frame of menu input, collapsed to a bitmask so edges and
  |   auto-repeat can be computed with plain bit arithmetic.
@@ -416,9 +440,9 @@ static void menuRescan(MenuState *st) {
  ----------------------*/
 static void menuDrawTitleScreen(uint8_t *page, const MenuState *st) {
 	memcpy(page, MENU_ART_TITLE_BACKDROP, MENU_PAGE_SIZE);
-	menuBlit2bpp(page, &MENU_ART_START_GAME, 84, 128,
+	menuBlit2bpp(page, &MENU_ART_START_GAME, 84, MENU_TITLE_START_Y,
 	             st->cursor == 0 ? MENU_BASE_SEL : MENU_BASE_DIM);
-	menuBlit2bpp(page, &MENU_ART_LOAD_GAME, 84, 152,
+	menuBlit2bpp(page, &MENU_ART_LOAD_GAME, 84, MENU_TITLE_START_Y + MENU_TITLE_ROW_STEP,
 	             st->cursor == 1 ? MENU_BASE_SEL : MENU_BASE_DIM);
 }
 
@@ -641,18 +665,35 @@ static int menuStrobeLevel(int frame) {
 static const int MENU_BOLT_LIFT[MENU_BOLT_FRAMES] = { 8, 4, 2 };
 
 /*----------------------
+ | menuTitleState
+ | Description: Maps a frame counter to a wordmark colour state, holding each
+ |   for MENU_TITLE_FLICKER_FRAMES frames.
+ | Author: suinevere
+ | Params: frame -- free-running frame counter
+ | Returns: a state index, 0..MENU_ART_TITLE_STATES - 1
+ ----------------------*/
+static int menuTitleState(int frame) {
+	int s = (frame / MENU_TITLE_FLICKER_FRAMES) % MENU_ART_TITLE_STATES;
+	if (s < 0) {
+		s += MENU_ART_TITLE_STATES;
+	}
+	return s;
+}
+
+/*----------------------
  | menuTitlePalette
  | Description: Builds the title screen's palette for one frame -- artwork
- |   entries from MENU_ART_TITLE_PALETTE, entries 12..14 from the strobe table,
- |   and (while a bolt is on screen) every entry 1..14 pushed toward white,
- |   overriding the strobe for those three frames.
+ |   entries from whichever MENU_ART_TITLE_PALETTE state the frame counter is
+ |   in, entries 12..14 from the strobe table, and (while a bolt is on screen)
+ |   every entry 1..14 pushed toward white, overriding both for those three
+ |   frames.
  | Author: suinevere
  | Params: out -- 32 bytes; frame -- frame counter, for the strobe phase;
  |         boltFrame -- 0, 1 or 2 while a bolt is lit, negative otherwise
  | Returns: N/A
  ----------------------*/
 static void menuTitlePalette(uint8_t *out, int frame, int boltFrame) {
-	memcpy(out, MENU_ART_TITLE_PALETTE, 32);
+	memcpy(out, MENU_ART_TITLE_PALETTE[menuTitleState(frame)], 32);
 
 	const uint8_t *row = MENU_ART_STROBE[menuStrobeLevel(frame)];
 	for (int i = 0; i < 3; ++i) {

@@ -53,6 +53,27 @@ BACKDROP_MATCH_MAD = 1.0
 BACKDROP_MATCH_STRIDE = 101
 BACKDROP_MEDIAN = 3
 
+# The capture's credit block lands exactly where the menu entries go. Clearing
+# it here rather than in the player keeps drawing the title a straight memcpy.
+BACKDROP_CLEAR_ROWS = (131, 165)
+
+# While the storm plays, the intro flickers the wordmark between a lit green and
+# a dark blue, changing state every three or four of its 25 fps frames. These
+# are the mean hue of the lit ink in each state, and the gain is how bright that
+# state runs relative to the held card. Highlights keep their own near-neutral
+# colour and the dimmer end takes the tint, which is how the capture behaves --
+# it is a coloured glow over neutral chrome, not a wash over everything.
+TITLE_STATES = [
+    ("green", (0.29, 1.00, 0.69), 1.00),
+    ("blue",  (0.33, 0.29, 1.00), 0.60),
+]
+TITLE_TINT_FALLOFF = 0.7
+
+# Slots the flicker recolours: the backdrop's ramp and the wordmark's own three,
+# which the bolts share so a strike takes the weather's colour too. 7-10 and
+# 12-14 are left alone, so the menu entries hold still while the logo flickers.
+TITLE_TINTED_SLOTS = [1, 2, 3, 4, 5, 6, 11, 15]
+
 
 def quantise(im, colours):
     """Snap an RGB image onto an exact colour list, no dithering."""
@@ -228,12 +249,42 @@ def build_backdrop():
     pitch = 160
     buf = bytearray(pitch * 200)
     for y in range(200):
+        if BACKDROP_CLEAR_ROWS[0] <= y < BACKDROP_CLEAR_ROWS[1]:
+            continue
         row = y * pitch
         for x in range(0, 320, 2):
             a = lut[px[x, y]]
             b = lut[px[x + 1, y]]
             buf[row + (x >> 1)] = ((a & 0xF) << 4) | (b & 0xF)
     return bytes(buf), dict(zip(BACKDROP_FREE_SLOTS, (narrow8(c) for c in free)))
+
+
+def luminance(c):
+    return 0.30 * c[0] + 0.59 * c[1] + 0.11 * c[2]
+
+
+def title_palettes(ramp):
+    """One 32-byte palette per flicker state, tinted off the backdrop's ramp."""
+    base = []
+    for i, r, g, b in PALETTE:
+        if i in ramp:
+            r, g, b = ramp[i]
+        base += [r, (g << 4) | b]
+
+    out = []
+    for _, tint, gain in TITLE_STATES:
+        row = list(base)
+        for i in TITLE_TINTED_SLOTS:
+            was = (row[i * 2] & 0x0F, row[i * 2 + 1] >> 4, row[i * 2 + 1] & 0x0F)
+            want = luminance([widen4(v) for v in was]) * gain
+            w = 1.0 - (want / 255.0) ** TITLE_TINT_FALLOFF
+            hue = [(1.0 - w) + w * t for t in tint]
+            lit = luminance(hue)
+            c = narrow8([min(255, int(h * want / lit + 0.5)) for h in hue])
+            row[i * 2] = c[0]
+            row[i * 2 + 1] = (c[1] << 4) | c[2]
+        out.append(row)
+    return out
 
 
 def build_bolts():
@@ -320,11 +371,12 @@ def main():
             f.write("\t0x%02X, 0x%02X,\n" % (r, (g << 4) | b))
         f.write("};\n\n")
 
-        f.write("const uint8_t MENU_ART_TITLE_PALETTE[32] = {\n")
-        for i, r, g, b in PALETTE:
-            if i in titleRamp:
-                r, g, b = titleRamp[i]
-            f.write("\t0x%02X, 0x%02X,\n" % (r, (g << 4) | b))
+        f.write("const uint8_t MENU_ART_TITLE_PALETTE[MENU_ART_TITLE_STATES][32] = {\n")
+        for (name, _, _), row in zip(TITLE_STATES, title_palettes(titleRamp)):
+            f.write("\t/* %s */\n\t{\n" % name)
+            for i in range(0, 32, 2):
+                f.write("\t\t0x%02X, 0x%02X,\n" % (row[i], row[i + 1]))
+            f.write("\t},\n")
         f.write("};\n\n")
 
         f.write("const uint8_t MENU_ART_STROBE[MENU_ART_STROBE_LEVELS][6] = {\n")

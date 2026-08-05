@@ -277,34 +277,64 @@ static void test_backdrop_uses_only_logo_palette(void)
     }
 }
 
-static void test_title_palette_only_moves_the_backdrop_ramp(void)
+static int sumEntry(const uint8_t *pal, int i)
 {
-    /* Entries 1-3 double as the pause screen's freeze ramp, so the backdrop's
-       values for them must live in the title copy and nowhere else. */
-    for (int i = 0; i < 16; ++i) {
-        const bool ownedByBackdrop = (i >= 1 && i <= 3) || i == 11;
-        const bool same = MENU_ART_TITLE_PALETTE[i * 2] == MENU_ART_PALETTE[i * 2] &&
-                          MENU_ART_TITLE_PALETTE[i * 2 + 1] == MENU_ART_PALETTE[i * 2 + 1];
-        if (!ownedByBackdrop) {
-            CHECK_EQ(same, true);
+    return (pal[i * 2] & 0x0F) + ((pal[i * 2 + 1] & 0xF0) >> 4) + (pal[i * 2 + 1] & 0x0F);
+}
+
+static void test_title_palette_holds_the_menu_entries_still(void)
+{
+    /* The flicker must not reach the bases the menu entries draw at, or the
+       text would strobe along with the logo. Entries 1-3 also double as the
+       pause screen's freeze ramp, which is why the title takes a copy at all. */
+    const uint8_t untouched[] = { 7, 8, 9, 10, 12, 13, 14 };
+
+    for (int s = 0; s < MENU_ART_TITLE_STATES; ++s) {
+        CHECK_EQ(MENU_ART_TITLE_PALETTE[s][0], 0x00);
+        CHECK_EQ(MENU_ART_TITLE_PALETTE[s][1], 0x00);
+
+        for (int k = 0; k < (int)(sizeof(untouched) / sizeof(untouched[0])); ++k) {
+            const int i = untouched[k];
+            CHECK_EQ(MENU_ART_TITLE_PALETTE[s][i * 2], MENU_ART_PALETTE[i * 2]);
+            CHECK_EQ(MENU_ART_TITLE_PALETTE[s][i * 2 + 1], MENU_ART_PALETTE[i * 2 + 1]);
         }
     }
 }
 
 static void test_title_palette_ramp_climbs(void)
 {
-    /* The four slots exist to fill the gap the shared ones leave, so they have
-       to be ordered: a flat or inverted ramp would put the holes back. */
+    /* The ramp exists to fill the gap the shared slots leave, so every state
+       has to keep it ordered: a flat or inverted one puts the holes back. */
     const uint8_t ramp[] = { 1, 2, 3, 11 };
 
-    for (int i = 1; i < (int)(sizeof(ramp) / sizeof(ramp[0])); ++i) {
-        const int prev = (MENU_ART_TITLE_PALETTE[ramp[i - 1] * 2] & 0x0F) +
-                         ((MENU_ART_TITLE_PALETTE[ramp[i - 1] * 2 + 1] & 0xF0) >> 4) +
-                         (MENU_ART_TITLE_PALETTE[ramp[i - 1] * 2 + 1] & 0x0F);
-        const int cur = (MENU_ART_TITLE_PALETTE[ramp[i] * 2] & 0x0F) +
-                        ((MENU_ART_TITLE_PALETTE[ramp[i] * 2 + 1] & 0xF0) >> 4) +
-                        (MENU_ART_TITLE_PALETTE[ramp[i] * 2 + 1] & 0x0F);
-        CHECK_EQ(cur > prev, 1);
+    for (int s = 0; s < MENU_ART_TITLE_STATES; ++s) {
+        for (int i = 1; i < (int)(sizeof(ramp) / sizeof(ramp[0])); ++i) {
+            CHECK_EQ(sumEntry(MENU_ART_TITLE_PALETTE[s], ramp[i]) >
+                     sumEntry(MENU_ART_TITLE_PALETTE[s], ramp[i - 1]), 1);
+        }
+    }
+}
+
+static void test_title_states_differ(void)
+{
+    /* Two states that render the same would be a silent regeneration failure. */
+    int moved = 0;
+    for (int i = 0; i < 32; ++i) {
+        if (MENU_ART_TITLE_PALETTE[0][i] != MENU_ART_TITLE_PALETTE[1][i]) {
+            ++moved;
+        }
+    }
+    CHECK_EQ(moved > 0, 1);
+}
+
+static void test_backdrop_clears_the_menu_band(void)
+{
+    /* The capture's credit block sat exactly where the menu entries go; the
+       generator clears rows 131-164 so they have somewhere to land. */
+    for (int y = 131; y < 165; ++y) {
+        for (int x = 0; x < MENU_PAGE_PITCH; ++x) {
+            CHECK_EQ(MENU_ART_TITLE_BACKDROP[y * MENU_PAGE_PITCH + x], 0x00);
+        }
     }
 }
 
@@ -341,8 +371,10 @@ int main(void)
     test_freeze_remap_darkest_becomes_black();
     test_freeze_remap_touches_both_nibbles();
     test_backdrop_uses_only_logo_palette();
-    test_title_palette_only_moves_the_backdrop_ramp();
+    test_backdrop_clears_the_menu_band();
+    test_title_palette_holds_the_menu_entries_still();
     test_title_palette_ramp_climbs();
+    test_title_states_differ();
     test_text_renders_at_base_plus_two();
 
     if (g_fail != 0) {
