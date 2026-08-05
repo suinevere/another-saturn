@@ -3,13 +3,14 @@
  | Description: The streaming title-opening player: read-ahead, delta decode,
  |   per-frame palette and 25 fps pacing over a 60 Hz field rate.
  | Author: suinevere
- | Dependencies: opening.h, opening_codec.h, menu_draw.h, sys.h, saturn_cdfile.h,
- |   saturn_platform.h
+ | Dependencies: opening.h, opening_codec.h, menu_draw.h, menu_input.h, sys.h,
+ |   saturn_cdfile.h, saturn_platform.h
  | Globals: s_ring, s_offsets, s_table, s_hasPlayed
  ----------------------*/
 #include "opening.h"
 #include "opening_codec.h"
 #include "menu_draw.h"
+#include "menu_input.h"
 #include "sys.h"
 #include "saturn_cdfile.h"
 #include "saturn_platform.h"
@@ -90,10 +91,7 @@ static uint32_t openingReadU32(const uint8_t *p)
  ----------------------*/
 static bool openingAnyButton(System *sys)
 {
-	return (sys->input.dirMask & (PlayerInput::DIR_UP | PlayerInput::DIR_DOWN |
-	                               PlayerInput::DIR_LEFT | PlayerInput::DIR_RIGHT)) != 0 ||
-	       sys->input.menuLeft || sys->input.menuRight ||
-	       sys->input.menuConfirm || sys->input.menuCancel || sys->input.pause;
+	return menuInputBits(sys) != 0;
 }
 
 void openingPlay(System *sys, uint8_t *page)

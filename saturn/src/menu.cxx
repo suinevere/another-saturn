@@ -8,7 +8,8 @@
  |   RAM.
  | Author: suinevere
  | Dependencies: menu.h, engine.h, sys.h, video.h, menu_draw.h, menu_blit.h,
- |   menu_art.h, savedata.h, saturn_backup.h, saturn_platform.h, opening.h
+ |   menu_art.h, menu_input.h, savedata.h, saturn_backup.h, saturn_platform.h,
+ |   opening.h
  | Globals: s_menuPage
  ----------------------*/
 #include "menu.h"
@@ -18,6 +19,7 @@
 #include "menu_draw.h"
 #include "menu_blit.h"
 #include "menu_art.h"
+#include "menu_input.h"
 #include "savedata.h"
 #include "saturn_backup.h"
 #include "saturn_platform.h"
@@ -303,26 +305,15 @@ void Menu::ensureDevices() {
  | Description: Polls the pad and collapses one frame of it into a bitmask.
  |   Shoulder buttons get their own bits rather than folding into the D-pad's,
  |   so the slot list's device toggle can be edge-only while the directions
- |   auto-repeat.
+ |   auto-repeat. MENU_PAD_* mirrors menuInputBits' MENU_INPUT_* bit layout,
+ |   so the raw signal test itself is shared rather than restated here.
  | Author: suinevere
  | Params: sys -- the system to poll
  | Returns: the MENU_PAD_* bits held this frame
  ----------------------*/
 static uint32_t menuPadMask(System *sys) {
 	sys->processEvents();
-
-	uint32_t now = 0;
-	if (sys->input.dirMask & PlayerInput::DIR_UP)    now |= MENU_PAD_UP;
-	if (sys->input.dirMask & PlayerInput::DIR_DOWN)  now |= MENU_PAD_DOWN;
-	if (sys->input.dirMask & PlayerInput::DIR_LEFT)  now |= MENU_PAD_LEFT;
-	if (sys->input.dirMask & PlayerInput::DIR_RIGHT) now |= MENU_PAD_RIGHT;
-	if (sys->input.menuLeft)  now |= MENU_PAD_L;
-	if (sys->input.menuRight) now |= MENU_PAD_R;
-	if (sys->input.menuConfirm) now |= MENU_PAD_CONFIRM;
-	if (sys->input.menuCancel)  now |= MENU_PAD_CANCEL;
-	if (sys->input.pause)       now |= MENU_PAD_PAUSE;
-
-	return now;
+	return menuInputBits(sys);
 }
 
 /*----------------------
