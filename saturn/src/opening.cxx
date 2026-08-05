@@ -5,7 +5,7 @@
  | Author: suinevere
  | Dependencies: opening.h, opening_codec.h, menu_draw.h, sys.h, saturn_cdfile.h,
  |   saturn_platform.h
- | Globals: s_ring, s_offsets, s_table
+ | Globals: s_ring, s_offsets, s_table, s_hasPlayed
  ----------------------*/
 #include "opening.h"
 #include "opening_codec.h"
@@ -53,6 +53,13 @@ static uint32_t s_offsets[OPENING_MAX_FRAMES];
 static uint8_t s_table[OPENING_MAX_FRAMES * 4];
 
 /*----------------------
+ | s_hasPlayed
+ | Description: The opening plays once per boot; every later call returns immediately.
+ | Author: suinevere
+ ----------------------*/
+static bool s_hasPlayed = false;
+
+/*----------------------
  | OPENING_HOLD
  | Description: Vblanks each frame is held for, cycling 2,2,2,3,3 so five frames
  |   span twelve fields and land on exactly 25 fps.
@@ -73,8 +80,29 @@ static uint32_t openingReadU32(const uint8_t *p)
 	       ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
+/*----------------------
+ | openingAnyButton
+ | Description: Reports whether any button menuPadMask reads is currently held.
+ | Author: suinevere
+ | Params: sys -- the system to poll
+ | Returns: true if any of the four D-pad directions, L, R, confirm, cancel, or
+ |          pause is held
+ ----------------------*/
+static bool openingAnyButton(System *sys)
+{
+	return (sys->input.dirMask & (PlayerInput::DIR_UP | PlayerInput::DIR_DOWN |
+	                               PlayerInput::DIR_LEFT | PlayerInput::DIR_RIGHT)) != 0 ||
+	       sys->input.menuLeft || sys->input.menuRight ||
+	       sys->input.menuConfirm || sys->input.menuCancel || sys->input.pause;
+}
+
 void openingPlay(System *sys, uint8_t *page)
 {
+	if (s_hasPlayed) {
+		return;
+	}
+	s_hasPlayed = true;
+
 	SatCdFile *f = sat_cd_open("OPENING.BIN");
 	if (f == 0) {
 		return;
@@ -142,8 +170,7 @@ void openingPlay(System *sys, uint8_t *page)
 		hold = (hold + 1) % 5;
 
 		sys->processEvents();
-		if (!skipped && (sys->input.menuConfirm || sys->input.menuCancel ||
-		                 sys->input.pause)) {
+		if (!skipped && openingAnyButton(sys)) {
 			skipped = true;
 			memset(page, 0, MENU_PAGE_SIZE);
 			i = count - 1;
