@@ -25,7 +25,8 @@
 
 | Value | Number |
 |---|---|
-| Frames | 398 (indices 0–397) |
+| Frames encoded and played | 383 (indices 0–382) |
+| Frames in the source GIF | 398 — frames 383–397 are a fade-to-black loop transition and are dropped |
 | Frame duration | 40 ms, every frame |
 | Source | 640×480, box-downsampled to 320×240, top 200 rows taken |
 | Content extent | native rows 0–162; nothing below is non-black |
@@ -33,7 +34,7 @@
 | Stream total | ≤ 1.98 MB |
 | Average frame | 5 223 bytes |
 | Worst frame | 20 474 bytes |
-| Keyframes | frames 0 and 397 only |
+| Keyframes | frames 0 and 382 only |
 
 ## Palette allocation (unchanged from the previous spec)
 
@@ -175,10 +176,7 @@ static void test_short_literal_and_run_by_hand(void)
     g_page[0] = 0x0F;
     g_page[1] = 0xF0;
 
-    const uint8_t enc[] = {
-        0x01, 0xFF, 0x00,   /* two literals: 0xFF then 0x00 */
-        0x82, 0xAA          /* run of three 0xAA           */
-    };
+    const uint8_t enc[] = { 0x01, 0xFF, 0x00, 0x82, 0xAA };
     CHECK_EQ(openingApplyDelta(g_page, enc, (int32_t)sizeof(enc), 5), 1);
 
     CHECK_EQ(g_page[0], 0xF0);
@@ -190,15 +188,23 @@ static void test_short_literal_and_run_by_hand(void)
 
 static void test_rejects_stream_that_overruns_the_page(void)
 {
-    memset(g_page, 0, PAGE);
-    const uint8_t enc[] = { 0x83, 0x11 };   /* run of four into a 3-byte page */
-    CHECK_EQ(openingApplyDelta(g_page, enc, (int32_t)sizeof(enc), 3), 0);
+    struct Guarded {
+        uint8_t page[3];
+        uint8_t canary;
+    } buf;
+
+    memset(&buf, 0, sizeof(buf));
+    buf.canary = 0x5A;
+
+    const uint8_t enc[] = { 0x83, 0x11 };
+    CHECK_EQ(openingApplyDelta(buf.page, enc, (int32_t)sizeof(enc), 3), 0);
+    CHECK_EQ(buf.canary, 0x5A);
 }
 
 static void test_rejects_stream_that_underruns_the_page(void)
 {
     memset(g_page, 0, PAGE);
-    const uint8_t enc[] = { 0x81, 0x11 };   /* run of two into a 9-byte page */
+    const uint8_t enc[] = { 0x81, 0x11 };
     CHECK_EQ(openingApplyDelta(g_page, enc, (int32_t)sizeof(enc), 9), 0);
 }
 
@@ -1093,5 +1099,6 @@ git commit -m "Stream the Mega Drive opening from disc before the title menu app
 - **`sat_video_present` already waits a vblank.** A hold of *k* fields therefore costs *k−1* extra `sat_video_sync` calls, not *k*. Getting this wrong makes the animation run at 20 fps or 30 fps rather than 25.
 - **The backdrop is copied, not blitted.** `menuBlit4bpp` treats index 0 as transparent, which would leave whatever was underneath showing through the black areas.
 - **The 20 474-byte worst frame is the one risk that cannot be checked off-hardware.** If playback stutters on a real drive, the mitigations in the spec lower the peak rather than enlarging the ring.
+- **A rejection test must be able to fail.** Task 1's overrun test originally reused the 32 000-byte `g_page` for a 3-byte `pageLen`, so deleting the bounds guard still returned false via the final `di == pageLen` tally and the test passed either way. It now writes into an exactly-sized buffer with a canary after it. The check that proves such a test works is to delete the guard, watch the test fail, and restore it.
 - **Include paths carry no `system/` prefix.** `menu.cxx` already includes `saturn_platform.h` and `saturn_backup.h` unprefixed, so `src/system` is on the include path; `opening.cxx` follows that.
 - **`sat_video_sync` is a plan-level addition, not in the spec.** The spec required exact 25 fps pacing without saying how; presenting the same page two or three times per frame would work but re-DMAs 32 000 bytes each time, so a wait that leaves the framebuffer alone is the cheaper way to satisfy it.
