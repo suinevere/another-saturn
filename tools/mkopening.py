@@ -114,8 +114,24 @@ DARK_SUM = 60
 
 PALETTE_STRIP = 60000
 PALETTE_BULK_SLOTS = 13
-PALETTE_CHROMA_SLOTS = 2
-PALETTE_CHROMA_MIN = 50
+PALETTE_RESERVE_SLOTS = 2
+PALETTE_RESERVE_CHROMA = 30
+PALETTE_RESERVE_BG = 20
+
+# The wordmark's teal reads dull next to the menu's own ramp, which holds red at
+# between 0.00 and 0.42 of green all the way up; the intro's teal drifts to 0.94
+# at the bright end, because the source is a washed-out capture. Red is pulled
+# down on teal-leaning ink until it reaches the ratio of the selected menu ramp's
+# middle entry, 82/222. Applied only where the pixel already has chroma, so the
+# white credits stay white -- their chroma measures 1.6 against the wordmark's 26
+# to 51 -- and only where green and blue both lead, so the blue state is left
+# alone. This is a deliberate departure from the source, and it moves per-pixel
+# distance from it from 10.3 to 15.4 -- all of that in the direction asked for.
+# A flat saturation boost was tried first and is the wrong tool: it drove the
+# blue card past the source, to blue-minus-green +98 against its +54, while the
+# teal still fell short.
+TEAL_TARGET_RG = 0.37
+TEAL_CHROMA_FLOOR = 10.0
 
 
 def load_frames():
@@ -150,7 +166,7 @@ def load_frames():
                 for k in range(len(acc)):
                     acc[k] += d[k]
             mean = bytes(v // len(run) for v in acc)
-        page = Image.frombytes("RGB", (W, H), mean).point(curve * 3)
+        page = deepen_teal(Image.frombytes("RGB", (W, H), mean).point(curve * 3))
         for i in run:
             out[i] = page
 
@@ -168,10 +184,26 @@ def pack_palette(colours):
     return bytes(pal)
 
 
-def ink_histogram(pages, chroma_min=0):
+def deepen_teal(page):
+    """Pull red down on teal-leaning ink so it reaches the menu ramp's ratio."""
+    px = page.load()
+    for y in range(H):
+        for x in range(W):
+            r, g, b = px[x, y]
+            if max(r, g, b) - min(r, g, b) <= TEAL_CHROMA_FLOOR:
+                continue
+            if g <= r or b <= r:
+                continue
+            want = int(TEAL_TARGET_RG * max(g, b))
+            if want < r:
+                px[x, y] = (want, g, b)
+    return page
+
+
+def ink_histogram(pages, blue_only=False):
     """Weighted colour histogram of the ink, each page counting equally rather
-    than each pixel so a page with little ink still counts. chroma_min keeps only
-    colours at least that far from the grey axis."""
+    than each pixel so a page with little ink still counts. blue_only keeps just
+    the chromatic ink where blue leads."""
     weighted = {}
     for page in pages:
         px = page.load()
@@ -181,7 +213,8 @@ def ink_histogram(pages, chroma_min=0):
                 c = px[x, y]
                 if sum(c) <= DARK_SUM:
                     continue
-                if chroma_min and max(c) - min(c) < chroma_min:
+                if blue_only and (c[2] - c[1] < PALETTE_RESERVE_BG or
+                                  max(c) - min(c) < PALETTE_RESERVE_CHROMA):
                     continue
                 hist[c] = hist.get(c, 0) + 1
         total = float(sum(hist.values())) or 1.0
@@ -247,7 +280,7 @@ def build_palette(pages):
     bulk = ink_histogram(pages)
     colours = [(0, 0, 0)]
     colours += fit_colours(bulk, PALETTE_BULK_SLOTS)
-    colours += fit_colours(ink_histogram(pages, PALETTE_CHROMA_MIN), PALETTE_CHROMA_SLOTS)
+    colours += fit_colours(ink_histogram(pages, blue_only=True), PALETTE_RESERVE_SLOTS)
     colours = fill_unused(colours, bulk)
 
     ref = Image.new("P", (1, 1))
