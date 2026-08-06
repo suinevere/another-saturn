@@ -35,24 +35,6 @@ STROBE_FLOOR = 0.55
 BACKDROP_FIXED_SLOTS = [0, 4, 5, 6, 15]
 BACKDROP_FREE_SLOTS = [1, 2, 3, 11]
 
-# The wordmark's strokes are one 640x480 pixel wide, so the 2:1 box reduction
-# averages each of them with the black beside it and halves its brightness.
-# Half-bright pixels snap to whichever slot they happen to be nearer and the
-# stroke comes out dashed. Lifting the mid-tones puts the whole stroke back in
-# the same slot; it is applied to the backdrop only, after the reduction.
-BACKDROP_GAMMA = 0.55
-
-# The GIF is a capture, and its dither noise survives the reduction as speckle
-# along those same strokes. The card is held still for a while before the loop,
-# so every frame that matches the last one is another sample of it: averaging
-# them cancels the noise where a spatial filter would soften the strokes. The
-# threshold is a mean absolute difference per sampled byte, low enough that a
-# frame with a different bolt in it never gets in. MEDIAN is applied at 640x480
-# afterwards, where a stroke is still two pixels wide and survives it.
-BACKDROP_MATCH_MAD = 1.0
-BACKDROP_MATCH_STRIDE = 101
-BACKDROP_MEDIAN = 3
-
 # The capture's credit block lands exactly where the menu entries go. Clearing
 # it here rather than in the player keeps drawing the title a straight memcpy.
 BACKDROP_CLEAR_ROWS = (131, 165)
@@ -181,54 +163,38 @@ def fit_free_slots(hist, fixed):
     return free
 
 
-def held_card():
-    """Every frame up to LAST_FRAME that shows the same card as it, averaged."""
-    from PIL import ImageSequence
-    path = os.path.join(ROOT, "images", "genesis-opening.gif")
-
-    src = Image.open(path)
-    ref = None
-    for i, fr in enumerate(ImageSequence.Iterator(src)):
-        if i == LAST_FRAME:
-            ref = fr.convert("RGB")
-            break
-    raw = ref.tobytes()
-    at = range(0, len(raw), BACKDROP_MATCH_STRIDE)
-
-    acc = [0] * len(raw)
-    kept = 0
-    src = Image.open(path)
-    for i, fr in enumerate(ImageSequence.Iterator(src)):
-        if i > LAST_FRAME:
-            break
-        cur = fr.convert("RGB").tobytes()
-        mad = sum(abs(cur[k] - raw[k]) for k in at) / float(len(at))
-        if mad >= BACKDROP_MATCH_MAD:
-            continue
-        for k in range(len(acc)):
-            acc[k] += cur[k]
-        kept += 1
-
-    print("backdrop: averaged %d frames matching frame %d" % (kept, LAST_FRAME))
-    return Image.frombytes("RGB", ref.size, bytes(v // kept for v in acc))
-
-
 def build_backdrop():
-    """The opening's last card on the nine slots the title screen can spare."""
-    from PIL import ImageFilter
-    card = held_card().filter(ImageFilter.MedianFilter(BACKDROP_MEDIAN))
-    img = card.resize((320, 240), Image.BOX).crop((0, 0, 320, 200))
-    curve = [min(255, int(255.0 * (v / 255.0) ** BACKDROP_GAMMA + 0.5)) for v in range(256)]
-    img = img.point(curve * 3)
+    """The opening's last card on the nine slots the title screen can spare.
 
-    hist = [(c, n) for n, c in img.getcolors(1 << 18)]
+    The frame comes from the opening encoder's own pipeline rather than a second
+    copy of it, so what the title holds is byte-identical in tone to the last
+    frame the intro played and the handoff is invisible. It also retires a
+    duplicate frame matcher that was scoring on a mean difference and, because
+    these frames are mostly unchanging black, pulling in twenty-two cards that
+    were not the last one at all.
+    """
+    from mkopening import DARK_SUM, load_frames
+    img = load_frames()[LAST_FRAME]
+
+    px = img.load()
+    hist = {}
+    for y in range(200):
+        for x in range(320):
+            c = px[x, y]
+            if sum(c) > DARK_SUM:
+                hist[c] = hist.get(c, 0) + 1
+    hist = list(hist.items())
+
     fixed = [slot_rgb(i) for i in BACKDROP_FIXED_SLOTS]
     free = fit_free_slots(hist, fixed)
 
     slots = BACKDROP_FIXED_SLOTS + BACKDROP_FREE_SLOTS
     lut = {c: slots[nearest(c, fixed + free)] for c, _ in hist}
 
-    px = img.load()
+    def at(x, y):
+        c = px[x, y]
+        return lut[c] if sum(c) > DARK_SUM else 0
+
     pitch = 160
     buf = bytearray(pitch * 200)
     for y in range(200):
@@ -236,9 +202,7 @@ def build_backdrop():
             continue
         row = y * pitch
         for x in range(0, 320, 2):
-            a = lut[px[x, y]]
-            b = lut[px[x + 1, y]]
-            buf[row + (x >> 1)] = ((a & 0xF) << 4) | (b & 0xF)
+            buf[row + (x >> 1)] = ((at(x, y) & 0xF) << 4) | (at(x + 1, y) & 0xF)
     return bytes(buf), dict(zip(BACKDROP_FREE_SLOTS, (narrow8(c) for c in free)))
 
 
