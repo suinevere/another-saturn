@@ -13,6 +13,16 @@ Description: Builds saturn/cd/data/OPENING.CPK from the Mega Drive capture in
   25 fps, not 30. The source is 50 fps PAL, so 25 is an exact 2:1 decimation --
   every kept frame is a real source frame. 30 would need an uneven 5:3 pulldown
   and would judder the lightning against its own duplicated frames.
+
+  Video only, deliberately. CPK plays a movie's audio through the SGL 68000
+  sound driver and takes its playback clock from it, but sat_scsp_init stands
+  that driver down at boot (saturn_scsp.cxx, slSoundOffWait) to program the
+  SCSP slots directly. With the driver gone the PCM buffer is written once and
+  looped by the SCSP forever, and because the clock never advances
+  CPK_IsDispTime stops firing and the picture freezes on the first frame. A
+  movie with no audio track sets play_pcm to 0 and is timed off CPK_VblIn
+  instead (sgl_cpk.h:333,340), which needs no driver. Re-adding sound means
+  deciding what to do about that driver first -- see mem/.
 Author: suinevere
 Usage: python tools/mkopeningcpk.py
 """
@@ -26,8 +36,6 @@ OUT = os.path.join(ROOT, "saturn", "cd", "data", "OPENING.CPK")
 
 DURATION = 31.5              # seconds of front matter, up to the fade to black
 FPS = 25                     # exact 2:1 decimation of the 50 fps source
-AUDIO_RATE = 22050
-AUDIO_CHANNELS = 2
 
 # Where ffmpeg gets installed when it is not on PATH. Checked as a fallback so
 # the tool works straight after a winget install without a shell restart.
@@ -56,13 +64,10 @@ def encode():
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
 
-    # pcm_s16be_planar, not pcm_s16be. The film_cpk muxer rejects the
-    # interleaved variant outright with "Incompatible audio stream format".
     subprocess.check_call([
         find_ffmpeg(), "-v", "error", "-y",
         "-t", str(DURATION), "-i", SRC,
-        "-c:v", "cinepak", "-r", str(FPS),
-        "-c:a", "pcm_s16be_planar", "-ar", str(AUDIO_RATE), "-ac", str(AUDIO_CHANNELS),
+        "-c:v", "cinepak", "-r", str(FPS), "-an",
         "-f", "film_cpk", OUT,
     ])
 
