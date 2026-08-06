@@ -1,9 +1,16 @@
 ---
 name: title-menu-and-opening-state
-description: Session handoff as of 2026-08-05 — the title menu artwork and the streamed opening animation are both shipped to main at ec2619e; what is confirmed, what is unverified, and what is still open.
+description: STALE as of 2026-08-06 — superseded by [[opening-colour-pipeline]]. Kept for the human rulings and traps it records; its account of the opening encoder and of the open problems no longer holds.
 metadata:
   type: project
 ---
+
+> **STALE.** Superseded by [[opening-colour-pipeline]] at `5630d2d`. The opening encoder
+> described below has been replaced, and both entries under "The open problem" were
+> resolved by other means: the artifacts were the encoder's palette handling rather than
+> the vblank ordering, and the stream now runs at 37 KB/s against the 128 KB/s that made
+> smoothness a problem in the first place. The human rulings and the trap list below are
+> still accurate.
 
 Repo `C:\Users\saggl\CLionProjects\Another-Saturn`, branch `main`.
 **HEAD == origin/main == `ec2619e`.** Everything is pushed.
