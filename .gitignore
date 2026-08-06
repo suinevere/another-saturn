@@ -81,7 +81,16 @@ saturn/cd/data/SDDRVS.DAT
 saturn/cd/data/SDDRVS.TSK
 
 # --- Generated title opening stream ------------------------------------------
-# tools/mkopening.py builds this from images/genesis-opening.mp4. Under 1 MB of
-# derived data, regenerated on demand rather than committed.
+# tools/mkopeningcpk.py builds the CPK from the capture in images/; the older
+# tools/mkopening.py built the BIN from images/genesis-opening.mp4. Derived
+# data, regenerated on demand rather than committed.
+saturn/cd/data/OPENING.CPK
+saturn/cd/data/opening.cpk
 saturn/cd/data/OPENING.BIN
 saturn/cd/data/opening.bin
+
+# --- Reference captures -------------------------------------------------------
+# The Mega Drive capture tools/mkopeningcpk.py reads. Raw video, 723 MB, and
+# non-free besides: keep it beside the repo, never in it.
+images/*.avi
+images/*.mp4
