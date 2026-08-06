@@ -81,7 +81,7 @@ saturn/cd/data/SDDRVS.DAT
 saturn/cd/data/SDDRVS.TSK
 
 # --- Generated title opening stream ------------------------------------------
-# tools/mkopening.py builds this from images/genesis-opening.gif. ~2 MB of derived
-# data, regenerated on demand rather than committed.
+# tools/mkopening.py builds this from images/genesis-opening.mp4. Under 1 MB of
+# derived data, regenerated on demand rather than committed.
 saturn/cd/data/OPENING.BIN
 saturn/cd/data/opening.bin

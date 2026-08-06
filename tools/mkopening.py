@@ -1,24 +1,69 @@
 """
 mkopening.py
-Description: Builds saturn/cd/data/OPENING.BIN from images/genesis-opening.gif as
-  run-length coded XOR deltas with a per-frame 16-colour palette. Run from the
-  repository root. The output is git-ignored and regenerated on demand.
+Description: Builds saturn/cd/data/OPENING.BIN from images/genesis-opening.mp4 as
+  run-length coded XOR deltas against one shared 16-colour palette. Run from the
+  repository root. The output is git-ignored and regenerated on demand. Needs
+  ffmpeg to decode the source; genesis-opening.gif is the same footage put
+  through a 256-colour dither and is kept only for reference -- decoding from it
+  doubled the count of stray single pixels along the letter strokes.
 Author: suinevere
 Usage: python tools/mkopening.py
 """
 import os
+import shutil
 import struct
-from PIL import Image, ImageSequence
+import subprocess
+from PIL import Image
 from opening_frames import LAST_FRAME
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "images", "genesis-opening.gif")
+SRC = os.path.join(ROOT, "images", "genesis-opening.mp4")
 OUT = os.path.join(ROOT, "saturn", "cd", "data", "OPENING.BIN")
 
 W, H = 320, 200
 PAGE = (W // 2) * H          # 32000
-NATIVE_H = 240               # 640x480 box-downsamples to 320x240
+NATIVE_W, NATIVE_H = 640, 480
 KEYFRAMES = None             # filled in once the frame count is known
+
+# Where ffmpeg gets installed when it is not on PATH. Checked as a fallback so
+# the tool works straight after a winget install without a shell restart.
+FFMPEG_FALLBACKS = [
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Packages",
+                 "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe",
+                 "ffmpeg-9.0-full_build", "bin", "ffmpeg.exe"),
+]
+
+
+def find_ffmpeg():
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    for path in FFMPEG_FALLBACKS:
+        if path and os.path.exists(path):
+            return path
+    raise SystemExit("ffmpeg not found: put it on PATH, or add its location to "
+                     "FFMPEG_FALLBACKS in tools/mkopening.py")
+
+
+def decode(limit):
+    """Yield the first `limit` frames of SRC as 640x480 RGB images."""
+    proc = subprocess.Popen(
+        [find_ffmpeg(), "-v", "error", "-i", SRC, "-frames:v", str(limit),
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        stdout=subprocess.PIPE)
+    size = NATIVE_W * NATIVE_H * 3
+    try:
+        for _ in range(limit):
+            buf = bytearray()
+            while len(buf) < size:
+                chunk = proc.stdout.read(size - len(buf))
+                if not chunk:
+                    return
+                buf += chunk
+            yield Image.frombytes("RGB", (NATIVE_W, NATIVE_H), bytes(buf))
+    finally:
+        proc.stdout.close()
+        proc.wait()
 
 # The wordmark's strokes are one 640x480 pixel wide, so the 2:1 reduction
 # averages each with the black beside it and halves its brightness; without the
@@ -61,19 +106,17 @@ RUN_STRIDE = 7
 # admits the capture's whole noise floor and scatters it across the background as
 # lit dots. This is the level at which the background goes properly black with
 # the strokes still solid.
-DARK_SUM = 220
+DARK_SUM = 160
+PALETTE_STRIP = 240000
 
 
 def load_frames():
     """Box-downsample, average each run of frames showing one card, then lift.
     Averaging happens after the reduction because both are averages and the order
     does not matter; the lift is not linear, so it comes last."""
-    im = Image.open(SRC)
     flat = []
-    for i, fr in enumerate(ImageSequence.Iterator(im)):
-        if i > LAST_FRAME:
-            break
-        rgb = fr.convert("RGB").resize((W, NATIVE_H), Image.BOX).crop((0, 0, W, H))
+    for fr in decode(LAST_FRAME + 1):
+        rgb = fr.resize((W, NATIVE_H // 2), Image.BOX).crop((0, 0, W, H))
         flat.append(rgb.tobytes())
 
     at = list(range(0, len(flat[0]), RUN_STRIDE))
@@ -117,16 +160,38 @@ def pack_palette(colours):
     return bytes(pal)
 
 
-def quantise(img):
-    """Index 0 for the background, fifteen fitted to the ink. No dithering.
-    Returns (indexed image, 32-byte palette)."""
-    px = img.load()
-    ink = [px[x, y] for y in range(H) for x in range(W) if sum(px[x, y]) > DARK_SUM]
-    if not ink:
-        ink = [(0, 0, 0)]
+def build_palette(pages):
+    """One palette for the whole intro: index 0 for the background, fifteen fitted
+    to the ink of every distinct page.
 
-    strip = Image.new("RGB", (len(ink), 1))
-    strip.putdata(ink)
+    Fitting per frame was what made the transitions look unclean. Each fit landed
+    on slightly different colours, so 133 of the 382 frame boundaries moved the
+    palette by 17 RGB units on average and the whole picture shifted underneath
+    the animation. Fitting once holds it still, and it halves the stream as well,
+    because a pixel now only changes index when the picture changes.
+
+    Each page contributes equally rather than each pixel: the bright cards
+    outnumber the dim ones and a straight pixel count lets them take every slot.
+    """
+    weighted = {}
+    for img in pages:
+        px = img.load()
+        hist = {}
+        for y in range(H):
+            for x in range(W):
+                c = px[x, y]
+                if sum(c) > DARK_SUM:
+                    hist[c] = hist.get(c, 0) + 1
+        total = float(sum(hist.values())) or 1.0
+        for c, n in hist.items():
+            weighted[c] = weighted.get(c, 0.0) + n / total
+
+    scale = PALETTE_STRIP / sum(weighted.values())
+    data = []
+    for c, wt in weighted.items():
+        data += [c] * max(1, int(wt * scale))
+    strip = Image.new("RGB", (len(data), 1))
+    strip.putdata(data)
     fitted = strip.quantize(colors=15, method=Image.MEDIANCUT, dither=Image.NONE)
     raw = fitted.getpalette()[: 15 * 3]
     raw += [0] * (15 * 3 - len(raw))
@@ -137,7 +202,19 @@ def quantise(img):
     for c in colours:
         flat += list(c)
     ref.putpalette(flat + [0, 0, 0] * (256 - len(colours)))
-    return img.quantize(palette=ref, dither=Image.NONE), pack_palette(colours)
+    return ref, pack_palette(colours)
+
+
+def quantise(img, ref):
+    """Snap one frame onto the shared palette, background to index 0."""
+    q = img.quantize(palette=ref, dither=Image.NONE)
+    px = img.load()
+    qp = q.load()
+    for y in range(H):
+        for x in range(W):
+            if sum(px[x, y]) <= DARK_SUM:
+                qp[x, y] = 0
+    return q
 
 
 def pack4(q):
@@ -207,12 +284,16 @@ def main():
     keys = {0, count - 1}
     print("frames", count)
 
-    pages = []
-    pals = []
+    seen = set()
+    distinct = []
     for f in frames:
-        q, pal = quantise(f)
-        pages.append(pack4(q))
-        pals.append(pal)
+        if id(f) not in seen:
+            seen.add(id(f))
+            distinct.append(f)
+    ref, pal = build_palette(distinct)
+
+    pages = [pack4(quantise(f, ref)) for f in frames]
+    pals = [pal] * count
 
     zero = bytes(PAGE)
     payloads = []
