@@ -24,4 +24,15 @@ struct System;
  ----------------------*/
 void openingPlay(System *sys, uint8_t *page);
 
+/*----------------------
+ | openingReplay
+ | Description: Plays it again regardless of whether it has already run, for the
+ |   title screen's idle attract loop. Same early exit on a button press.
+ | Author: suinevere
+ | Params: sys -- for palette upload, presentation and input; page --
+ |         MENU_PAGE_SIZE bytes the animation decodes into
+ | Returns: N/A
+ ----------------------*/
+void openingReplay(System *sys, uint8_t *page);
+
 #endif /* OPENING_H */

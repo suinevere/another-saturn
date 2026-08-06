@@ -42,6 +42,7 @@ struct Menu {
 	int _boltTimer;
 	int _boltFrame;
 	int _boltIndex;
+	int _idleFrames;
 
 	/*----------------------
 	 | Menu::ensureDevices

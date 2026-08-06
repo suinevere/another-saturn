@@ -78,6 +78,16 @@ enum {
 };
 
 /*----------------------
+ | MENU_TITLE_IDLE_FRAMES
+ | Description: How long the title screen sits untouched before the opening
+ |   plays again, in frames at 60 Hz.
+ | Author: suinevere
+ ----------------------*/
+enum {
+	MENU_TITLE_IDLE_FRAMES = 900
+};
+
+/*----------------------
  | MENU_TITLE_START_Y / MENU_TITLE_ROW_STEP
  | Description: Where the two title entries sit, in scanlines. They live in the
  |   band the backdrop's credit block used to occupy -- the wordmark ends at
@@ -289,6 +299,7 @@ void Menu::init(Engine *e) {
 	_boltTimer = MENU_BOLT_GAP_MIN;
 	_boltFrame = -1;
 	_boltIndex = 0;
+	_idleFrames = 0;
 
 	memset(&_st, 0, sizeof(_st));
 	memset(_savedPal, 0, sizeof(_savedPal));
@@ -744,6 +755,7 @@ bool Menu::runTitle() {
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
 	MenuScreen lastScreen = _st.screen;
+	_idleFrames = 0;
 
 	while (!_sys->input.quit) {
 		MenuInput in;
@@ -766,7 +778,21 @@ bool Menu::runTitle() {
 			menuRescan(&_st);
 		}
 
+		// menuPollEdges has already polled the pad this frame, so the raw held
+		// bits are what _prevPad now holds -- reading them again would cost a
+		// second poll and could straddle a release.
+		if (_prevPad != 0 || _st.screen != lastScreen) {
+			_idleFrames = 0;
+		} else {
+			_idleFrames++;
+		}
+
 		if (_st.screen == MENU_TITLE) {
+			if (_idleFrames >= MENU_TITLE_IDLE_FRAMES) {
+				_idleFrames = 0;
+				openingReplay(_sys, _page);
+				menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
+			}
 			titleAnimate();
 			menuRenderTitleFrame(_page, _sys, &_st, _boltIndex, _boltFrame);
 		} else {

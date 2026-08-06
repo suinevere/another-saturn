@@ -55,7 +55,8 @@ static uint8_t s_table[OPENING_MAX_FRAMES * 4];
 
 /*----------------------
  | s_hasPlayed
- | Description: The opening plays once per boot; every later call returns immediately.
+ | Description: Whether openingPlay has run. It plays once per boot; the title
+ |   screen's attract loop goes through openingReplay instead, which ignores this.
  | Author: suinevere
  ----------------------*/
 static bool s_hasPlayed = false;
@@ -94,13 +95,17 @@ static bool openingAnyButton(System *sys)
 	return menuInputBits(sys) != 0;
 }
 
-void openingPlay(System *sys, uint8_t *page)
+/*----------------------
+ | openingRun
+ | Description: The player itself, with no once-per-boot guard, so the boot path
+ |   and the attract loop share one body.
+ | Author: suinevere
+ | Params: sys -- for palette upload, presentation and input; page --
+ |         MENU_PAGE_SIZE bytes the animation decodes into
+ | Returns: N/A
+ ----------------------*/
+static void openingRun(System *sys, uint8_t *page)
 {
-	if (s_hasPlayed) {
-		return;
-	}
-	s_hasPlayed = true;
-
 	SatCdFile *f = sat_cd_open("OPENING.BIN");
 	if (f == 0) {
 		return;
@@ -201,4 +206,19 @@ void openingPlay(System *sys, uint8_t *page)
 	}
 
 	sat_cd_close(f);
+}
+
+void openingPlay(System *sys, uint8_t *page)
+{
+	if (s_hasPlayed) {
+		return;
+	}
+	s_hasPlayed = true;
+	openingRun(sys, page);
+}
+
+void openingReplay(System *sys, uint8_t *page)
+{
+	s_hasPlayed = true;
+	openingRun(sys, page);
 }
