@@ -114,23 +114,31 @@ DARK_SUM = 60
 
 PALETTE_STRIP = 60000
 PALETTE_BULK_SLOTS = 13
-PALETTE_RESERVE_SLOTS = 2
+PALETTE_RESERVE_SLOTS = 3
 PALETTE_RESERVE_CHROMA = 30
 PALETTE_RESERVE_BG = 20
 
-# The wordmark's teal reads dull next to the menu's own ramp, which holds red at
-# between 0.00 and 0.42 of green all the way up; the intro's teal drifts to 0.94
-# at the bright end, because the source is a washed-out capture. Red is pulled
-# down on teal-leaning ink until it reaches the ratio of the selected menu ramp's
-# middle entry, 82/222. Applied only where the pixel already has chroma, so the
-# white credits stay white -- their chroma measures 1.6 against the wordmark's 26
-# to 51 -- and only where green and blue both lead, so the blue state is left
-# alone. This is a deliberate departure from the source, and it moves per-pixel
-# distance from it from 10.3 to 15.4 -- all of that in the direction asked for.
-# A flat saturation boost was tried first and is the wrong tool: it drove the
-# blue card past the source, to blue-minus-green +98 against its +54, while the
-# teal still fell short.
-TEAL_TARGET_RG = 0.37
+# The wordmark's teal reads dull next to the menu's own ramp, so red is pulled
+# down on teal-leaning ink. How far depends on how bright the pixel is, because
+# that is how both the source and the menu ramps are built: a tinted glow with
+# near-neutral chrome on top. Measured on the source, red as a fraction of green
+# climbs 0.54, 0.69, 0.82, 0.87, 0.89, 0.94 as luminance rises; the menu's
+# selected ramp climbs 0.00, 0.37, 0.74 the same way.
+#
+# A single flat ratio was tried and is wrong in both directions at once: it
+# leaves the glow about right but strips the highlights, turning a (206,222,222)
+# chrome edge into saturated cyan, and it hands the mid-tones to whatever pure
+# greys are left in the palette, which reads as grey lines along the straight
+# strokes. Interpolating between these two anchors keeps the ramp's shape. Red is
+# only ever reduced, never raised, so anything already deeper than the target is
+# left as it is.
+TEAL_RG_DARK = 0.30
+TEAL_LUM_DARK = 60.0
+TEAL_RG_LIGHT = 1.00
+TEAL_LUM_LIGHT = 210.0
+
+# Only where the pixel already has chroma, so the white credits stay white --
+# their chroma measures 1.6 against the wordmark's 26 to 51.
 TEAL_CHROMA_FLOOR = 10.0
 
 
@@ -184,8 +192,19 @@ def pack_palette(colours):
     return bytes(pal)
 
 
+def teal_target_rg(luminance):
+    """Red as a fraction of green to aim for at this brightness, interpolated
+    between the two anchors so the ramp keeps its shape."""
+    if luminance <= TEAL_LUM_DARK:
+        return TEAL_RG_DARK
+    if luminance >= TEAL_LUM_LIGHT:
+        return TEAL_RG_LIGHT
+    t = (luminance - TEAL_LUM_DARK) / (TEAL_LUM_LIGHT - TEAL_LUM_DARK)
+    return TEAL_RG_DARK + (TEAL_RG_LIGHT - TEAL_RG_DARK) * t
+
+
 def deepen_teal(page):
-    """Pull red down on teal-leaning ink so it reaches the menu ramp's ratio."""
+    """Pull red down on teal-leaning ink toward the menu ramp's ratio."""
     px = page.load()
     for y in range(H):
         for x in range(W):
@@ -194,7 +213,7 @@ def deepen_teal(page):
                 continue
             if g <= r or b <= r:
                 continue
-            want = int(TEAL_TARGET_RG * max(g, b))
+            want = int(teal_target_rg(0.30 * r + 0.59 * g + 0.11 * b) * max(g, b))
             if want < r:
                 px[x, y] = (want, g, b)
     return page
