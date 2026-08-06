@@ -8,7 +8,7 @@ Usage: python tools/mkopening.py
 """
 import os
 import struct
-from PIL import Image, ImageFilter, ImageSequence
+from PIL import Image, ImageSequence
 from opening_frames import LAST_FRAME
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -23,30 +23,89 @@ KEYFRAMES = None             # filled in once the frame count is known
 # The wordmark's strokes are one 640x480 pixel wide, so the 2:1 reduction
 # averages each with the black beside it and halves its brightness; without the
 # lift, neighbouring stroke pixels land in different slots and the stroke comes
-# out dashed. MEDIAN runs at 640x480, where a stroke is still two pixels wide
-# and survives it, and clears the capture's dither before it can become speckle.
+# out dashed. Applied after the reduction, and after pooling, which is linear.
 GAMMA = 0.55
-MEDIAN = 3
+
+# The GIF is a capture and its dither noise survives the reduction as speckle
+# along those strokes. A spatial filter removes it but softens the strokes with
+# it -- measurably, a 3x3 median cost about 15% of the mean edge gradient. The
+# source holds most cards still for several frames instead (the median
+# consecutive-frame difference is 0.08 per byte), so the run is several samples
+# of one card: averaging the run cancels the noise and touches no edge.
+#
+# The whole run gets that one average rather than each frame getting its own
+# sliding window. A window that shifts by one every frame gives every page a
+# slightly different average, so the deltas stop being empty and the stream
+# doubles; sharing the average makes the pages inside a run identical, which
+# costs two bytes each.
+#
+# A run boundary is the fraction of sampled bytes that moved by more than
+# RUN_NOISE, not a mean difference. A mean is useless here: the frame is
+# five-sixths unchanging black, so swapping the bolt for a different one barely
+# shifts it -- at a mean threshold the whole intro collapsed into 19 distinct
+# images. Counting changed samples instead is indifferent to how much of the
+# frame is background. At these values the longest run is four frames, which is
+# what the source actually holds a card for.
+RUN_NOISE = 24
+RUN_CHANGED = 0.0005
+RUN_STRIDE = 7
 
 # Median cut allocates by population, and these frames are five-sixths black, so
 # it spends four to six of sixteen slots on duplicates of black and leaves the
 # lit end of the ramp with almost nothing. Holding index 0 for the background and
 # fitting the other fifteen to the ink only is what keeps the three lit states --
 # blue, green, and the lightning flash -- distinct from each other.
-DARK_SUM = 24
+#
+# The sum is measured after the lift, which is why the number is high: the lift
+# takes a raw channel of 8 to 38, so anything that looks like a low threshold
+# admits the capture's whole noise floor and scatters it across the background as
+# lit dots. This is the level at which the background goes properly black with
+# the strokes still solid.
+DARK_SUM = 220
 
 
 def load_frames():
-    """Denoise, box-downsample and lift each GIF frame, stopping at LAST_FRAME."""
-    curve = [min(255, int(255.0 * (v / 255.0) ** GAMMA + 0.5)) for v in range(256)]
+    """Box-downsample, average each run of frames showing one card, then lift.
+    Averaging happens after the reduction because both are averages and the order
+    does not matter; the lift is not linear, so it comes last."""
     im = Image.open(SRC)
-    out = []
+    flat = []
     for i, fr in enumerate(ImageSequence.Iterator(im)):
         if i > LAST_FRAME:
             break
-        rgb = fr.convert("RGB").filter(ImageFilter.MedianFilter(MEDIAN))
-        rgb = rgb.resize((W, NATIVE_H), Image.BOX).crop((0, 0, W, H))
-        out.append(rgb.point(curve * 3))
+        rgb = fr.convert("RGB").resize((W, NATIVE_H), Image.BOX).crop((0, 0, W, H))
+        flat.append(rgb.tobytes())
+
+    at = list(range(0, len(flat[0]), RUN_STRIDE))
+    runs = [[0]]
+    for i in range(1, len(flat)):
+        head = flat[runs[-1][0]]
+        cur = flat[i]
+        moved = sum(1 for k in at if abs(cur[k] - head[k]) > RUN_NOISE)
+        if moved < RUN_CHANGED * len(at):
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+
+    curve = [min(255, int(255.0 * (v / 255.0) ** GAMMA + 0.5)) for v in range(256)]
+    out = [None] * len(flat)
+    for run in runs:
+        if len(run) == 1:
+            mean = flat[run[0]]
+        else:
+            acc = [0] * len(flat[0])
+            for i in run:
+                d = flat[i]
+                for k in range(len(acc)):
+                    acc[k] += d[k]
+            mean = bytes(v // len(run) for v in acc)
+        page = Image.frombytes("RGB", (W, H), mean).point(curve * 3)
+        for i in run:
+            out[i] = page
+
+    longest = max(len(r) for r in runs)
+    print("%d frames in %d runs, mean %.1f, longest %d"
+          % (len(flat), len(runs), len(flat) / float(len(runs)), longest))
     return out
 
 
