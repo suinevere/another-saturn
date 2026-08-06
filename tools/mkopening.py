@@ -113,10 +113,21 @@ RUN_STRIDE = 7
 DARK_SUM = 60
 
 PALETTE_STRIP = 60000
-PALETTE_BULK_SLOTS = 13
-PALETTE_RESERVE_SLOTS = 3
+PALETTE_BULK_SLOTS = 10
+PALETTE_RESERVE_SLOTS = 2
 PALETTE_RESERVE_CHROMA = 30
-PALETTE_RESERVE_BG = 20
+PALETTE_RESERVE_BG = 35
+
+# A second reserve, for tinted ink at the bright end. The chrome highlights carry
+# a slight tint that the bulk fit drops for the same reason it dropped the blue --
+# too few pixels to win a slot on population. Without it nothing tinted sat
+# between luminance 179 and 229, so source pixels like (178,195,201) snapped to a
+# flat neutral grey and cut a grey band across the highlight. One plus ten plus
+# the two reserves is sixteen exactly; the counts used to sum to seventeen and the
+# surplus was clipped off silently.
+PALETTE_HIGHLIGHT_SLOTS = 2
+PALETTE_HIGHLIGHT_LUM = 150.0
+PALETTE_HIGHLIGHT_CHROMA = 10
 
 # The wordmark's teal reads dull next to the menu's own ramp, so red is pulled
 # down on teal-leaning ink. How far depends on how bright the pixel is, because
@@ -219,10 +230,11 @@ def deepen_teal(page):
     return page
 
 
-def ink_histogram(pages, blue_only=False):
+def ink_histogram(pages, blue_only=False, highlights_only=False):
     """Weighted colour histogram of the ink, each page counting equally rather
     than each pixel so a page with little ink still counts. blue_only keeps just
-    the chromatic ink where blue leads."""
+    the chromatic ink where blue leads; highlights_only keeps just the tinted ink
+    at the bright end."""
     weighted = {}
     for page in pages:
         px = page.load()
@@ -234,6 +246,10 @@ def ink_histogram(pages, blue_only=False):
                     continue
                 if blue_only and (c[2] - c[1] < PALETTE_RESERVE_BG or
                                   max(c) - min(c) < PALETTE_RESERVE_CHROMA):
+                    continue
+                if highlights_only and (
+                        0.30 * c[0] + 0.59 * c[1] + 0.11 * c[2] < PALETTE_HIGHLIGHT_LUM or
+                        max(c) - min(c) < PALETTE_HIGHLIGHT_CHROMA):
                     continue
                 hist[c] = hist.get(c, 0) + 1
         total = float(sum(hist.values())) or 1.0
@@ -300,6 +316,8 @@ def build_palette(pages):
     colours = [(0, 0, 0)]
     colours += fit_colours(bulk, PALETTE_BULK_SLOTS)
     colours += fit_colours(ink_histogram(pages, blue_only=True), PALETTE_RESERVE_SLOTS)
+    colours += fit_colours(ink_histogram(pages, highlights_only=True),
+                           PALETTE_HIGHLIGHT_SLOTS)
     colours = fill_unused(colours, bulk)
 
     ref = Image.new("P", (1, 1))
