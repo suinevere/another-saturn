@@ -70,11 +70,12 @@ def decode(limit):
 # lift, neighbouring stroke pixels land in different slots and the stroke comes
 # out dashed. Applied after the reduction, and after averaging, which is linear.
 #
-# Tuned against a screenshot of the source's darkest card, where the wordmark
-# measures (29, 25, 72) -- blue minus green +47, luminance 31. A harder lift
-# reaches further into the noise floor but drags the dark states up and toward
-# neutral with it: at 0.55 that card came out at luminance 60 and only +32 blue.
-GAMMA = 0.80
+# Kept as light as the strokes allow, because any lift is a distortion of the
+# source's own colour. Scored as mean per-pixel error against the source frame
+# over 42 frames spread across the intro: 0.90 sits at 10.0 on lit pixels, where
+# 0.80 is 15.1 and 0.55 was worse again, all of it showing up as mid-tones too
+# bright and tints washed toward grey.
+GAMMA = 0.90
 
 # The GIF is a capture and its dither noise survives the reduction as speckle
 # along those strokes. A spatial filter removes it but softens the strokes with
@@ -106,21 +107,15 @@ RUN_STRIDE = 7
 # fitting the rest to the ink only is what keeps the lit states apart.
 #
 # The sum is measured after the lift, and it has to clear the noise floor without
-# reaching the dark states: the source's darkest wordmark sums to 126 before the
+# reaching the lit states: the source's darkest wordmark sums to 126 before the
 # lift, so a cut much above this one deletes that card and leaves only its
-# neutral highlights, which is how the blue went missing.
-DARK_SUM = 100
+# neutral highlights, which is how the blue went missing once already.
+DARK_SUM = 60
 
-# The three lit states -- the storm's blue, its green, and the lightning flash --
-# hold very different amounts of ink, and a fit weighted by pixels gave the blue
-# a single slot out of fifteen. Runs are grouped by hue and each group gets its
-# own share of the palette, so the dim states keep their colour. The thresholds
-# are on the mean lit ink of a run, in blue-minus-green and green-minus-red.
-STATE_BLUE_BG = 15.0
-STATE_GREEN_GR = 15.0
-PALETTE_SLOTS = 15
-
-PALETTE_STRIP = 240000
+PALETTE_STRIP = 60000
+PALETTE_BULK_SLOTS = 13
+PALETTE_CHROMA_SLOTS = 2
+PALETTE_CHROMA_MIN = 50
 
 
 def load_frames():
@@ -173,32 +168,10 @@ def pack_palette(colours):
     return bytes(pal)
 
 
-def state_of(page):
-    """Which lit state a page belongs to, by the hue of its ink, or None if it
-    has too little ink to tell."""
-    px = page.load()
-    r = g = b = n = 0
-    for y in range(H):
-        for x in range(W):
-            c = px[x, y]
-            if sum(c) > DARK_SUM:
-                r += c[0]
-                g += c[1]
-                b += c[2]
-                n += 1
-    if n < 200:
-        return None
-    r, g, b = r / float(n), g / float(n), b / float(n)
-    if b - g > STATE_BLUE_BG:
-        return "blue"
-    if g - r > STATE_GREEN_GR:
-        return "green"
-    return "neutral"
-
-
-def fit_colours(pages, slots):
-    """Median cut over the ink of these pages, each page weighted equally rather
-    than each pixel, so a page with little ink still counts."""
+def ink_histogram(pages, chroma_min=0):
+    """Weighted colour histogram of the ink, each page counting equally rather
+    than each pixel so a page with little ink still counts. chroma_min keeps only
+    colours at least that far from the grey axis."""
     weighted = {}
     for page in pages:
         px = page.load()
@@ -206,12 +179,21 @@ def fit_colours(pages, slots):
         for y in range(H):
             for x in range(W):
                 c = px[x, y]
-                if sum(c) > DARK_SUM:
-                    hist[c] = hist.get(c, 0) + 1
+                if sum(c) <= DARK_SUM:
+                    continue
+                if chroma_min and max(c) - min(c) < chroma_min:
+                    continue
+                hist[c] = hist.get(c, 0) + 1
         total = float(sum(hist.values())) or 1.0
         for c, n in hist.items():
             weighted[c] = weighted.get(c, 0.0) + n / total
+    return weighted
 
+
+def fit_colours(weighted, slots):
+    """Median cut over a weighted histogram."""
+    if not weighted or slots <= 0:
+        return []
     scale = PALETTE_STRIP / sum(weighted.values())
     data = []
     for c, wt in weighted.items():
@@ -224,9 +206,37 @@ def fit_colours(pages, slots):
     return [(raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]) for i in range(slots)]
 
 
+def fill_unused(colours, weighted):
+    """Drop entries that collapse onto each other once packed to four bits per
+    channel, then spend the freed slots on whatever the histogram still
+    represents worst. Two of the fitted colours landing in the same 4-bit cell
+    otherwise costs a slot outright."""
+    kept, seen = [], set()
+    for c in colours:
+        key = (c[0] >> 4, c[1] >> 4, c[2] >> 4)
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(c)
+
+    while len(kept) < 16 and weighted:
+        best, at = None, None
+        for c, wt in weighted.items():
+            if (c[0] >> 4, c[1] >> 4, c[2] >> 4) in seen:
+                continue
+            far = min((c[0] - o[0]) ** 2 + (c[1] - o[1]) ** 2 + (c[2] - o[2]) ** 2 for o in kept)
+            if best is None or far * wt > best:
+                best, at = far * wt, c
+        if at is None:
+            break
+        seen.add((at[0] >> 4, at[1] >> 4, at[2] >> 4))
+        kept.append(at)
+    return (kept + [(0, 0, 0)] * 16)[:16]
+
+
 def build_palette(pages):
-    """One palette for the whole intro: index 0 for the background, and the other
-    fifteen split between the lit states.
+    """One palette for the whole intro: index 0 for the background, the bulk
+    fitted to all the ink, and a reserve fitted to the most saturated of it.
 
     Fitting per frame was what made the transitions look unclean. Each fit landed
     on slightly different colours, so 133 of the 382 frame boundaries moved the
@@ -234,21 +244,11 @@ def build_palette(pages):
     the animation. Fitting once holds it still, and it halves the stream as well,
     because a pixel now only changes index when the picture changes.
     """
-    grouped = {}
-    for page in pages:
-        state = state_of(page)
-        if state is not None:
-            grouped.setdefault(state, []).append(page)
-
-    names = sorted(grouped)
-    share = [PALETTE_SLOTS // len(names)] * len(names)
-    for i in range(PALETTE_SLOTS - sum(share)):
-        share[i] += 1
-
+    bulk = ink_histogram(pages)
     colours = [(0, 0, 0)]
-    for name, slots in zip(names, share):
-        colours += fit_colours(grouped[name], slots)
-        print("  %-8s %3d pages, %d slots" % (name, len(grouped[name]), slots))
+    colours += fit_colours(bulk, PALETTE_BULK_SLOTS)
+    colours += fit_colours(ink_histogram(pages, PALETTE_CHROMA_MIN), PALETTE_CHROMA_SLOTS)
+    colours = fill_unused(colours, bulk)
 
     ref = Image.new("P", (1, 1))
     flat = []
