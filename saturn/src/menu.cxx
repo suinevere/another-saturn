@@ -67,14 +67,15 @@ enum {
  | MENU_BOLT_FRAMES / MENU_BOLT_GAP_MIN / MENU_BOLT_GAP_SPAN
  | Description: Lightning timing in frames at 60 Hz: how long one strike is on
  |   screen, and the shortest and the width of the random wait between strikes.
- |   The span is kept narrow deliberately -- a wide one reads as the effect
- |   stalling on some strikes rather than as weather.
+ |   The span stays narrow relative to the gap -- a wide one reads as the effect
+ |   stalling on some strikes rather than as weather -- and the gap is long
+ |   enough that the card is mostly still, since this screen is sat on.
  | Author: suinevere
  ----------------------*/
 enum {
 	MENU_BOLT_FRAMES   = 3,
-	MENU_BOLT_GAP_MIN  = 24,
-	MENU_BOLT_GAP_SPAN = 42
+	MENU_BOLT_GAP_MIN  = 72,
+	MENU_BOLT_GAP_SPAN = 108
 };
 
 /*----------------------
@@ -659,10 +660,12 @@ static int menuStrobeLevel(int frame) {
  | MENU_BOLT_LIFT
  | Description: How far toward white each frame of a strike pushes the palette.
  |   Decaying rather than cutting out early keeps the last frame of bolt art
- |   from sitting on screen unlit.
+ |   from sitting on screen unlit. The peak stops short of blowing the whole
+ |   card white: at full lift the wordmark and the menu entries clipped together
+ |   and the screen read as a flash rather than as a bolt lighting the scene.
  | Author: suinevere
  ----------------------*/
-static const int MENU_BOLT_LIFT[MENU_BOLT_FRAMES] = { 8, 4, 2 };
+static const int MENU_BOLT_LIFT[MENU_BOLT_FRAMES] = { 5, 3, 1 };
 
 /*----------------------
  | menuTitlePalette
