@@ -68,8 +68,13 @@ def decode(limit):
 # The wordmark's strokes are one 640x480 pixel wide, so the 2:1 reduction
 # averages each with the black beside it and halves its brightness; without the
 # lift, neighbouring stroke pixels land in different slots and the stroke comes
-# out dashed. Applied after the reduction, and after pooling, which is linear.
-GAMMA = 0.55
+# out dashed. Applied after the reduction, and after averaging, which is linear.
+#
+# Tuned against a screenshot of the source's darkest card, where the wordmark
+# measures (29, 25, 72) -- blue minus green +47, luminance 31. A harder lift
+# reaches further into the noise floor but drags the dark states up and toward
+# neutral with it: at 0.55 that card came out at luminance 60 and only +32 blue.
+GAMMA = 0.80
 
 # The GIF is a capture and its dither noise survives the reduction as speckle
 # along those strokes. A spatial filter removes it but softens the strokes with
@@ -98,15 +103,23 @@ RUN_STRIDE = 7
 # Median cut allocates by population, and these frames are five-sixths black, so
 # it spends four to six of sixteen slots on duplicates of black and leaves the
 # lit end of the ramp with almost nothing. Holding index 0 for the background and
-# fitting the other fifteen to the ink only is what keeps the three lit states --
-# blue, green, and the lightning flash -- distinct from each other.
+# fitting the rest to the ink only is what keeps the lit states apart.
 #
-# The sum is measured after the lift, which is why the number is high: the lift
-# takes a raw channel of 8 to 38, so anything that looks like a low threshold
-# admits the capture's whole noise floor and scatters it across the background as
-# lit dots. This is the level at which the background goes properly black with
-# the strokes still solid.
-DARK_SUM = 160
+# The sum is measured after the lift, and it has to clear the noise floor without
+# reaching the dark states: the source's darkest wordmark sums to 126 before the
+# lift, so a cut much above this one deletes that card and leaves only its
+# neutral highlights, which is how the blue went missing.
+DARK_SUM = 100
+
+# The three lit states -- the storm's blue, its green, and the lightning flash --
+# hold very different amounts of ink, and a fit weighted by pixels gave the blue
+# a single slot out of fifteen. Runs are grouped by hue and each group gets its
+# own share of the palette, so the dim states keep their colour. The thresholds
+# are on the mean lit ink of a run, in blue-minus-green and green-minus-red.
+STATE_BLUE_BG = 15.0
+STATE_GREEN_GR = 15.0
+PALETTE_SLOTS = 15
+
 PALETTE_STRIP = 240000
 
 
@@ -160,22 +173,35 @@ def pack_palette(colours):
     return bytes(pal)
 
 
-def build_palette(pages):
-    """One palette for the whole intro: index 0 for the background, fifteen fitted
-    to the ink of every distinct page.
+def state_of(page):
+    """Which lit state a page belongs to, by the hue of its ink, or None if it
+    has too little ink to tell."""
+    px = page.load()
+    r = g = b = n = 0
+    for y in range(H):
+        for x in range(W):
+            c = px[x, y]
+            if sum(c) > DARK_SUM:
+                r += c[0]
+                g += c[1]
+                b += c[2]
+                n += 1
+    if n < 200:
+        return None
+    r, g, b = r / float(n), g / float(n), b / float(n)
+    if b - g > STATE_BLUE_BG:
+        return "blue"
+    if g - r > STATE_GREEN_GR:
+        return "green"
+    return "neutral"
 
-    Fitting per frame was what made the transitions look unclean. Each fit landed
-    on slightly different colours, so 133 of the 382 frame boundaries moved the
-    palette by 17 RGB units on average and the whole picture shifted underneath
-    the animation. Fitting once holds it still, and it halves the stream as well,
-    because a pixel now only changes index when the picture changes.
 
-    Each page contributes equally rather than each pixel: the bright cards
-    outnumber the dim ones and a straight pixel count lets them take every slot.
-    """
+def fit_colours(pages, slots):
+    """Median cut over the ink of these pages, each page weighted equally rather
+    than each pixel, so a page with little ink still counts."""
     weighted = {}
-    for img in pages:
-        px = img.load()
+    for page in pages:
+        px = page.load()
         hist = {}
         for y in range(H):
             for x in range(W):
@@ -192,10 +218,37 @@ def build_palette(pages):
         data += [c] * max(1, int(wt * scale))
     strip = Image.new("RGB", (len(data), 1))
     strip.putdata(data)
-    fitted = strip.quantize(colors=15, method=Image.MEDIANCUT, dither=Image.NONE)
-    raw = fitted.getpalette()[: 15 * 3]
-    raw += [0] * (15 * 3 - len(raw))
-    colours = [(0, 0, 0)] + [(raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]) for i in range(15)]
+    fitted = strip.quantize(colors=slots, method=Image.MEDIANCUT, dither=Image.NONE)
+    raw = fitted.getpalette()[: slots * 3]
+    raw += [0] * (slots * 3 - len(raw))
+    return [(raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]) for i in range(slots)]
+
+
+def build_palette(pages):
+    """One palette for the whole intro: index 0 for the background, and the other
+    fifteen split between the lit states.
+
+    Fitting per frame was what made the transitions look unclean. Each fit landed
+    on slightly different colours, so 133 of the 382 frame boundaries moved the
+    palette by 17 RGB units on average and the whole picture shifted underneath
+    the animation. Fitting once holds it still, and it halves the stream as well,
+    because a pixel now only changes index when the picture changes.
+    """
+    grouped = {}
+    for page in pages:
+        state = state_of(page)
+        if state is not None:
+            grouped.setdefault(state, []).append(page)
+
+    names = sorted(grouped)
+    share = [PALETTE_SLOTS // len(names)] * len(names)
+    for i in range(PALETTE_SLOTS - sum(share)):
+        share[i] += 1
+
+    colours = [(0, 0, 0)]
+    for name, slots in zip(names, share):
+        colours += fit_colours(grouped[name], slots)
+        print("  %-8s %3d pages, %d slots" % (name, len(grouped[name]), slots))
 
     ref = Image.new("P", (1, 1))
     flat = []
