@@ -30,6 +30,24 @@ using namespace SRL::Types;
 #define MOVIE_DEPTH 500.0
 
 /*----------------------
+ | MOVIE_PCM_ADDR / MOVIE_PCM_SAMPLES
+ | Description: The sound RAM the movie's audio streams through. Held here
+ |   rather than left to SRL's defaults because saturn_scsp.cxx reserves this
+ |   exact span -- SCSP_HEAP_BASE starts where it ends -- and the two constants
+ |   have to be read together to see that they do not overlap.
+ |
+ |   MOVIE_PCM_SAMPLES is SAMPLES PER CHANNEL, not bytes (sgl_cpk.h:281), and
+ |   must be 4096 times 1 to 16. At 4096*8 mono that is 32768 samples, 64 KB,
+ |   which is the reservation, and a little over a second of buffer at the
+ |   32 kHz the movies are encoded at. SRL's default is 4096*16, which in
+ |   stereo would be 256 KB and would run four times past the reservation into
+ |   the sample heap.
+ | Author: suinevere
+ ----------------------*/
+#define MOVIE_PCM_ADDR    ((uint16_t *)0x25A20000)
+#define MOVIE_PCM_SAMPLES (4096 * 8)
+
+/*----------------------
  | g_player
  | Description: The live player, or null when nothing is open.
  | Author: suinevere
@@ -140,6 +158,8 @@ extern "C" int sat_movie_open(const char *file)
     // is where its default puts it and where there is room for it.
     SRL::CinepakPlayer::MovieDecodeParams params;
     params.DecodeBufferLocation = SRL::Memory::Zone::HWRam;
+    params.PCMAddress = MOVIE_PCM_ADDR;
+    params.PCMSize = MOVIE_PCM_SAMPLES;
 
     if (!g_player->LoadMovie(file, params))
     {

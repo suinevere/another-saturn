@@ -36,17 +36,19 @@
 
 /*----------------------
  | SCSP_HEAP_BASE / SCSP_HEAP_LIMIT
- | Description: The span of sound RAM samples are uploaded into: 0x020000 to
- |   0x080000, 384 KB of the bank's 512.
+ | Description: The span of sound RAM samples are uploaded into: 0x030000 to
+ |   0x080000, 320 KB of the bank's 512.
  |
- |   The low 128 KB is left alone because it holds the SGL driver image and
- |   every area BOOTSND.MAP declares -- the highest of which ends around
- |   0x48000. Staying above all of it means this layout does not depend on the
- |   68000 actually being stood down, which keeps the fallback in the design
- |   spec cheap if it turns out it cannot be.
+ |   The low 128 KB is left alone because it holds the SGL driver image and the
+ |   areas BOOTSND.MAP declares.
+ |
+ |   The next 64 KB is left alone for the Cinepak player's PCM buffer, which
+ |   SRL places at 0x25A20000 -- sound RAM offset 0x020000, which is where this
+ |   heap used to start. They overlapped exactly. See saturn_movie.cxx, which
+ |   sizes the buffer to fit the reservation rather than the other way round.
  | Author: suinevere
  ----------------------*/
-#define SCSP_HEAP_BASE   0x020000u
+#define SCSP_HEAP_BASE   0x030000u
 #define SCSP_HEAP_LIMIT  0x080000u
 
 #define SCSP_CHANNELS    4
@@ -69,13 +71,19 @@
  |   outgoing slot is keyed off AFTER the new one starts, so its release covers
  |   the seam rather than leaving a gap.
  |
- |   Eight of the SCSP's 32 slots, and nothing else is competing for them: the
- |   68000 is held in reset and SGL's allocator is not running.
+ |   Eight of the SCSP's 32 slots, taken from the top. The 68000 driver runs --
+ |   the Cinepak player's audio needs it -- so its allocator is competing for
+ |   slots, and it hands them out from slot 0 upward. Starting at 24 puts this
+ |   backend as far from it as the slot file allows.
+ |
+ |   SCSP_SLOT_FIRST is the one knob: if the driver is ever heard stealing a
+ |   voice, move it, and nothing else has to change.
  | Author: suinevere
  ----------------------*/
 #define SCSP_SLOTS_PER_CHANNEL 2
-#define SCSP_SLOT_A(ch)        ((uint8_t)((ch) * SCSP_SLOTS_PER_CHANNEL))
-#define SCSP_SLOT_B(ch)        ((uint8_t)((ch) * SCSP_SLOTS_PER_CHANNEL + 1))
+#define SCSP_SLOT_FIRST        24
+#define SCSP_SLOT_A(ch)        ((uint8_t)(SCSP_SLOT_FIRST + (ch) * SCSP_SLOTS_PER_CHANNEL))
+#define SCSP_SLOT_B(ch)        ((uint8_t)(SCSP_SLOT_FIRST + (ch) * SCSP_SLOTS_PER_CHANNEL + 1))
 #define SCSP_TOTAL_SLOTS       (SCSP_CHANNELS * SCSP_SLOTS_PER_CHANNEL)
 
 static uint8_t g_slot[SCSP_CHANNELS] = { 0, 0, 0, 0 };
@@ -159,17 +167,14 @@ void sat_scsp_init(void)
 {
     uint8_t n;
 
-    /* Stand the SGL 68000 driver down and take the whole sound block. Nothing
-       in this port uses CDDA or slPCM, and SRL::Core does no per-frame sound
-       work -- srl_core.hpp:108 initialises sound once and never touches it
-       again -- so there is nothing left relying on that driver. The SCSP is
-       independent hardware and keeps playing without it.
-
-       If this turns out to silence the SCSP on real hardware, the fallback is
-       to drop this call and move the four slots up out of the SGL allocator's
-       way; the sample heap already sits above every area BOOTSND.MAP
-       declares, so nothing else would have to change. */
-    slSoundOffWait();
+    /* The SGL 68000 driver is deliberately left running. This used to call
+       slSoundOffWait to stand it down and take the whole sound block, on the
+       reasoning that nothing was left relying on it. The Cinepak player is:
+       it feeds movie audio to that driver and reads its playback clock back,
+       so with the 68000 in reset the opening froze on its first frame and
+       looped one PCM buffer forever. Sharing the chip is the price of movie
+       sound -- the slots move up instead, and the sample heap moves above the
+       player's PCM buffer. */
 
     scsp_cache_init(&g_cache, SCSP_HEAP_BASE, SCSP_HEAP_LIMIT);
     g_active  = 0;
@@ -181,7 +186,7 @@ void sat_scsp_init(void)
 
     /* Every slot both halves of the ping-pong can land on, not just one per
        channel -- see the Slot ping-pong note. */
-    for (n = 0; n < SCSP_TOTAL_SLOTS; n++)
+    for (n = SCSP_SLOT_FIRST; n < SCSP_SLOT_FIRST + SCSP_TOTAL_SLOTS; n++)
     {
         slotKeyOff(n);
 
@@ -192,11 +197,10 @@ void sat_scsp_init(void)
                                         (uint16_t)SCSP_RR);
         SCSP_SLOT(n, 0x0C) = 0x00FF;   /* TL silent until a note sets it */
 
-        /* slSoundOffWait halts the 68000 driver but does not zero slot
-           registers, and slots 0-7 are exactly what SGL's allocator hands out
-           first -- so whatever the driver last left in MDL/MDXSL/MDYSL and the
-           LFO block is still there. Left-over modulation or vibrato on a slot
-           this backend then keys on would be heard as FM garbage, not silence. */
+        /* Nothing zeroes slot registers on the way in, so whatever the boot
+           ROM or the driver last left in MDL/MDXSL/MDYSL and the LFO block is
+           still there. Left-over modulation or vibrato on a slot this backend
+           then keys on would be heard as FM garbage, not silence. */
         SCSP_SLOT(n, 0x0E) = 0;        /* MDL/MDXSL/MDYSL -- no FM modulation */
         SCSP_SLOT(n, 0x12) = 0;        /* LFORE/LFOF/PLFOWS/PLFOS/ALFOWS/ALFOS off */
 
@@ -232,7 +236,7 @@ void sat_scsp_stop_all(void)
 {
     uint8_t n;
 
-    for (n = 0; n < SCSP_TOTAL_SLOTS; n++)
+    for (n = SCSP_SLOT_FIRST; n < SCSP_SLOT_FIRST + SCSP_TOTAL_SLOTS; n++)
     {
         slotKeyOff(n);
     }
