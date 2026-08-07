@@ -71,11 +71,13 @@ using namespace SRL::Types;
  |             running the full width is Error, which is -1 widened.
  |     row 12  red, one pixel per unit of the last CPK error code, only if the
  |             player raised one. See the CPK_ERR_ values in sgl_cpk.h.
- |     rows 16, 20, 24
- |             how far through each step the loop got: entry, sprite queued,
- |             and returned from Core::Synchronize. All three advance together
- |             while the loop is healthy, so whichever row ends one pixel short
- |             of the others names the call that never came back.
+ |     rows 16, 20, 28, 24
+ |             how far through each step the loop got, in that order: entry,
+ |             sprite queued, inside Core::Synchronize after the player's task
+ |             ran, and returned from Core::Synchronize. All four advance
+ |             together while the loop is healthy, so whichever row ends one
+ |             pixel short of the ones before it names the call that never
+ |             came back.
  | Author: suinevere
  ----------------------*/
 #define MOVIE_DIAGNOSTICS 1
@@ -202,6 +204,23 @@ static void movieDiagnostics(void)
 static void moviePhase(uint16_t row)
 {
     movieBar(row, (uint16_t)(g_steps % g_spriteW), 1, 0xFFFF);
+}
+
+/*----------------------
+ | movieBeforeSync
+ | Description: Marks row 28 from inside Core::Synchronize's before-sync event,
+ |   registered after the player so it runs after the player's own task. It
+ |   splits the two halves of that call: if row 28 keeps up with row 20 but
+ |   row 24 falls short, CPK_Task returned and slSynch is what hung, which
+ |   means the vblank handler. If row 28 falls short too, CPK_Task is what hung.
+ | Author: suinevere
+ | Globals: g_steps
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void movieBeforeSync(void)
+{
+    moviePhase(28);
 }
 #endif
 
@@ -341,6 +360,8 @@ extern "C" int sat_movie_open(const char *file)
     g_steps = 0;
     g_decoded = 0;
     g_error = 0;
+
+    SRL::Core::OnBeforeSync += movieBeforeSync;
 #endif
 
     g_completed = false;
@@ -387,6 +408,10 @@ extern "C" void sat_movie_close(void)
     {
         return;
     }
+
+#if MOVIE_DIAGNOSTICS
+    SRL::Core::OnBeforeSync -= movieBeforeSync;
+#endif
 
     g_player->Stop();
     g_player->UnloadMovie();

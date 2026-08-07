@@ -14,14 +14,16 @@ Description: Builds saturn/cd/data/OPENING.CPK from the Mega Drive capture in
   every kept frame is a real source frame. 30 would need an uneven 5:3 pulldown
   and would judder the lightning against its own duplicated frames.
 
-  Mono at 32 kHz, which is what SRL's own known-good sample (SKYBL.CPK) uses.
-  Not a free choice: CPK plays movie audio through the SGL 68000 driver and
-  takes its playback clock from that driver, so anything the driver mishandles
-  stops the picture as well as the sound. Stereo at 22 kHz was tried first and
-  there is no evidence in the tree that SGL's PCM path takes stereo, so this
-  matches the reference exactly rather than guessing. Mono also halves the
-  sound RAM the buffer needs, which is what lets it fit the 64 KB
-  saturn_scsp.cxx reserves for it.
+  Video only. CPK routes movie audio through the SGL 68000 sound driver, and
+  saturn_scsp.cxx stands that driver down at boot because this port programs
+  the SCSP directly and the two cannot both own the chip. Leaving the driver up
+  so the player could use it hung the machine about half a second in, inside
+  the vblank handler where CPK_VblIn feeds the driver its PCM. A movie with no
+  audio track sets play_pcm to 0 and is clocked off CPK_VblIn alone
+  (sgl_cpk.h:333,340), which needs no driver and no sound RAM.
+
+  Sound for the opening, if it is ever wanted, has to come from the port's own
+  SCSP path rather than from the movie file.
 
   ffmpeg writes the FILM timebase as the frame rate (base_freq 25 here), where
   SEGA's own encoder wrote 600 with per-frame durations of 20. That difference
@@ -40,8 +42,6 @@ OUT = os.path.join(ROOT, "saturn", "cd", "data", "OPENING.CPK")
 
 DURATION = 31.5              # seconds of front matter, up to the fade to black
 FPS = 25                     # exact 2:1 decimation of the 50 fps source
-AUDIO_RATE = 32000           # matches SRL's known-good SKYBL.CPK
-AUDIO_CHANNELS = 1
 
 # Where ffmpeg gets installed when it is not on PATH. Checked as a fallback so
 # the tool works straight after a winget install without a shell restart.
@@ -70,13 +70,10 @@ def encode():
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
 
-    # pcm_s16be_planar, not pcm_s16be. The film_cpk muxer rejects the
-    # interleaved variant outright with "Incompatible audio stream format".
     subprocess.check_call([
         find_ffmpeg(), "-v", "error", "-y",
         "-t", str(DURATION), "-i", SRC,
-        "-c:v", "cinepak", "-r", str(FPS),
-        "-c:a", "pcm_s16be_planar", "-ar", str(AUDIO_RATE), "-ac", str(AUDIO_CHANNELS),
+        "-c:v", "cinepak", "-r", str(FPS), "-an",
         "-f", "film_cpk", OUT,
     ])
 
