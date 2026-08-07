@@ -48,6 +48,32 @@ using namespace SRL::Types;
 #define MOVIE_PCM_SAMPLES (4096 * 8)
 
 /*----------------------
+ | MOVIE_DIAGNOSTICS
+ | Description: Draws playback state into the movie's own sprite as coloured
+ |   bars. Set to 0 to remove it entirely.
+ |
+ |   It writes into the sprite rather than printing because there is nowhere to
+ |   print to: SRL::ASCII is a replacement for slPrint and wants NBG0, which
+ |   this port has configured as a bitmap, and SRL's emulator logger writes to
+ |   0x24001000 for Kronos, which Mednafen does not read. The sprite is already
+ |   on screen and needs no layer of its own.
+ |
+ |   Reading the bars, from the top of the picture:
+ |     row 0   one white pixel, marching left to right, one step per call.
+ |             Moving means the loop is still running and this is a stalled
+ |             stream. Stopped means the CPU is not getting here at all and the
+ |             picture is frozen because nothing is driving it.
+ |     row 4   green, one pixel per decoded frame, wrapping. Stuck at one means
+ |             only the preloaded frame ever arrived.
+ |     row 8   blue, twenty pixels per CinepakPlayer::PlaybackStateEnum, so
+ |             40 = Timer (playing), 100 = Completed, nothing = Stop.
+ |     row 12  red, one pixel per unit of the last CPK error code, only if the
+ |             player raised one. See the CPK_ERR_ values in sgl_cpk.h.
+ | Author: suinevere
+ ----------------------*/
+#define MOVIE_DIAGNOSTICS 1
+
+/*----------------------
  | g_player
  | Description: The live player, or null when nothing is open.
  | Author: suinevere
@@ -78,6 +104,83 @@ static uint16_t g_spriteH = 0;
  ----------------------*/
 static bool g_completed = false;
 
+#if MOVIE_DIAGNOSTICS
+/*----------------------
+ | g_steps / g_decoded / g_error
+ | Description: Counters behind the diagnostic bars: calls to sat_movie_step,
+ |   invocations of the frame event, and the last error the player raised.
+ | Author: suinevere
+ ----------------------*/
+static uint32_t g_steps   = 0;
+static uint32_t g_decoded = 0;
+static int32_t  g_error   = 0;
+
+/*----------------------
+ | movieOnError
+ | Description: Records the last CPK error code for the diagnostic bars. Bound
+ |   to the player's static error event.
+ | Author: suinevere
+ | Globals: g_error
+ | Params: code -- a CPK_ERR_ value from sgl_cpk.h
+ | Returns: N/A
+ ----------------------*/
+static void movieOnError(int32_t code)
+{
+    g_error = code;
+}
+
+/*----------------------
+ | movieBar
+ | Description: Draws one horizontal run of pixels into the sprite.
+ | Author: suinevere
+ | Globals: g_sprite, g_spriteW
+ | Params: row -- y in the sprite; from -- first x; length -- pixels, clamped
+ |         to the sprite width; colour -- RGB555 with the opaque bit set
+ | Returns: N/A
+ ----------------------*/
+static void movieBar(uint16_t row, uint16_t from, uint32_t length, uint16_t colour)
+{
+    uint16_t *pixels = (uint16_t *)SRL::VDP1::Textures[g_sprite].GetData();
+    uint32_t x;
+
+    if (pixels == nullptr)
+    {
+        return;
+    }
+
+    for (x = from; x < from + length && x < g_spriteW; x++)
+    {
+        pixels[(uint32_t)row * g_spriteW + x] = colour;
+    }
+}
+
+/*----------------------
+ | movieDiagnostics
+ | Description: Repaints the diagnostic bars from the counters. Called once per
+ |   step, before the sprite is queued, so a stalled stream leaves them on
+ |   screen and a running one has them overwritten by each decoded frame.
+ | Author: suinevere
+ | Globals: g_steps, g_decoded, g_error, g_player
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void movieDiagnostics(void)
+{
+    const uint32_t status = (g_player != nullptr) ? (uint32_t)g_player->GetStatus() : 0;
+
+    movieBar(0, (uint16_t)(g_steps % g_spriteW), 1, 0xFFFF);
+    movieBar(4, 0, g_decoded % g_spriteW, 0x83E0);
+    movieBar(8, 0, status * 20, 0xFC00);
+
+    if (g_error != 0)
+    {
+        movieBar(12, 0, (uint32_t)(g_error < 0 ? -g_error : g_error), 0x801F);
+    }
+
+    g_steps++;
+}
+#endif
+
 /*----------------------
  | movieFrameDecoded
  | Description: Copies a freshly decoded frame into the sprite's VRAM. Bound to
@@ -99,6 +202,10 @@ static void movieFrameDecoded(SRL::CinepakPlayer &player)
     const auto length = (size.Width * size.Height) << ((int)player.GetDepth() + 1);
 
     DMA_ScuMemCopy(SRL::VDP1::Textures[g_sprite].GetData(), player.GetFrameData(), length);
+
+#if MOVIE_DIAGNOSTICS
+    g_decoded++;
+#endif
 }
 
 /*----------------------
@@ -198,6 +305,20 @@ extern "C" int sat_movie_open(const char *file)
 
     SRL::VDP2::NBG0::ScrollDisable();
 
+#if MOVIE_DIAGNOSTICS
+    static bool errorHooked = false;
+
+    if (!errorHooked)
+    {
+        errorHooked = true;
+        SRL::CinepakPlayer::OnError += movieOnError;
+    }
+
+    g_steps = 0;
+    g_decoded = 0;
+    g_error = 0;
+#endif
+
     g_completed = false;
     g_player->Play();
 
@@ -210,6 +331,10 @@ extern "C" int sat_movie_step(void)
     {
         return 0;
     }
+
+#if MOVIE_DIAGNOSTICS
+    movieDiagnostics();
+#endif
 
     SRL::Scene2D::DrawSprite(
         g_sprite,
