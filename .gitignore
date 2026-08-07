@@ -86,6 +86,11 @@ saturn/cd/data/SDDRVS.TSK
 # data, regenerated on demand rather than committed.
 saturn/cd/data/OPENING.CPK
 saturn/cd/data/opening.cpk
+
+# SRL's SKYBL.CPK with the audio dropped, used to tell a bad encode apart from
+# a bad player setup. Derived from the SDK sample, regenerate on demand.
+saturn/cd/data/REFTEST.CPK
+saturn/cd/data/reftest.cpk
 saturn/cd/data/OPENING.BIN
 saturn/cd/data/opening.bin
 
