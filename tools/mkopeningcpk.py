@@ -14,16 +14,19 @@ Description: Builds saturn/cd/data/OPENING.CPK from the Mega Drive capture in
   every kept frame is a real source frame. 30 would need an uneven 5:3 pulldown
   and would judder the lightning against its own duplicated frames.
 
-  Video only. CPK routes movie audio through the SGL 68000 sound driver, and
-  saturn_scsp.cxx stands that driver down at boot because this port programs
-  the SCSP directly and the two cannot both own the chip. Leaving the driver up
-  so the player could use it hung the machine about half a second in, inside
-  the vblank handler where CPK_VblIn feeds the driver its PCM. A movie with no
-  audio track sets play_pcm to 0 and is clocked off CPK_VblIn alone
-  (sgl_cpk.h:333,340), which needs no driver and no sound RAM.
+  Mono at 32 kHz, matching SRL's own SKYBL.CPK exactly. Not a free choice:
+  movie audio goes through the SGL 68000 driver, and there is no evidence in
+  the tree that its PCM path takes stereo. Mono also halves the sound RAM the
+  buffer needs, which is what lets it fit the 64 KB saturn_scsp.cxx reserves
+  at offset 0x020000.
 
-  Sound for the opening, if it is ever wanted, has to come from the port's own
-  SCSP path rather than from the movie file.
+  The opening was briefly encoded silent, on the belief that movie audio could
+  not work because bringing the sound driver up hung the machine. That was a
+  misread: those builds crashed in cpk_VideoSampleCvid, the video decoder, on
+  the odd-chunk alignment bug that was present the whole time and would have
+  crashed with the driver either way. The audio path was in fact running -- the
+  symptom was one PCM buffer looping, which is a buffer that was filled once
+  and never refilled because the CPU had died decoding video.
 
   The output is word aligned afterwards by align(), and that is the thing that
   actually makes it play. ffmpeg leaves vector chunks at odd lengths; SEGA's
@@ -76,6 +79,8 @@ OUT = os.path.join(ROOT, "saturn", "cd", "data", "OPENING.CPK")
 DURATION = 31.5              # seconds of front matter, up to the fade to black
 FPS = 25                     # exact 2:1 decimation of the 50 fps source
 STRIPS = 2                   # constant, matching SKYBL.CPK -- see the note above
+AUDIO_RATE = 32000           # matches SKYBL.CPK; the SGL PCM path is mono
+AUDIO_CHANNELS = 1
 
 # Where ffmpeg gets installed when it is not on PATH. Checked as a fallback so
 # the tool works straight after a winget install without a shell restart.
@@ -224,10 +229,10 @@ def verify():
 
     for i in range(count):
         offset, length, info1, _ = struct.unpack(">IIII", d[start + i * 16:start + 16 + i * 16])
-        if info1 == 0xFFFFFFFF:
-            continue
         if offset & 1 or length & 1:
             odd += 1
+        if info1 == 0xFFFFFFFF:
+            continue
         frame = d[header_len + offset:header_len + offset + length]
         if len(frame) < 24:
             continue
@@ -280,9 +285,12 @@ def encode():
     subprocess.check_call([
         find_ffmpeg(), "-v", "error", "-y",
         "-t", str(DURATION), "-i", SRC,
-        "-c:v", "cinepak", "-r", str(FPS), "-an",
+        "-c:v", "cinepak", "-r", str(FPS),
         "-min_strips", str(STRIPS), "-max_strips", str(STRIPS),
         "-skip_empty_cb", "1",
+        # pcm_s16be_planar, not pcm_s16be. The film_cpk muxer rejects the
+        # interleaved variant outright with "Incompatible audio stream format".
+        "-c:a", "pcm_s16be_planar", "-ar", str(AUDIO_RATE), "-ac", str(AUDIO_CHANNELS),
         "-f", "film_cpk", OUT,
     ])
 

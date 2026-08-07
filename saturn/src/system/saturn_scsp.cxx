@@ -167,17 +167,18 @@ void sat_scsp_init(void)
 {
     uint8_t n;
 
-    /* Stand the SGL 68000 driver down and take the whole sound block. This
-       backend owns the SCSP outright -- every slot register, the master volume
-       and the sample area -- and that cannot be true at the same time as a
-       driver that believes it owns the same chip.
+    /* The SGL 68000 driver is deliberately left running, because the Cinepak
+       player feeds movie audio through it. This used to call slSoundOffWait to
+       stand it down and take the whole sound block.
 
-       Leaving the driver up was tried, so that the Cinepak player could use it
-       for movie audio. It hung the machine about half a second into playback,
-       inside the vblank handler where CPK_VblIn hands PCM to the driver, which
-       is the one place the two owners have to agree. The opening plays without
-       audio instead; see tools/mkopeningcpk.py. */
-    slSoundOffWait();
+       The two do have to share the chip: this backend writes slot registers and
+       the master volume directly, and the driver believes it owns the same
+       hardware. The slots move up to SCSP_SLOT_FIRST to stay out of the
+       allocator's way, and the sample heap starts above the player's PCM
+       buffer. If the driver is ever heard stealing a voice, move
+       SCSP_SLOT_FIRST; if the game's music breaks outright, putting
+       slSoundOffWait back here is the fallback, and the openings then have to
+       be encoded silent. */
 
     scsp_cache_init(&g_cache, SCSP_HEAP_BASE, SCSP_HEAP_LIMIT);
     g_active  = 0;
