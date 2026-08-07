@@ -5,8 +5,8 @@ metadata:
   type: project
 ---
 
-Repo `C:\Users\saggl\CLionProjects\Another-Saturn`, branch `main`, **HEAD `451c3af`**.
-Fifteen commits, `4ecc5f4..451c3af`, on top of the five that were already unpushed.
+Repo `C:\Users\saggl\CLionProjects\Another-Saturn`, branch `main`, **HEAD `82bb321`**.
+Eighteen commits, `4ecc5f4..82bb321`, on top of the five that were already unpushed.
 
 Supersedes [[opening-colour-pipeline]] **for the opening only**. That entry's encoder no
 longer draws the opening and its open item (the navy fringe) is gone with it, but its
@@ -25,7 +25,7 @@ It plays through `SRL::CinepakPlayer` behind a three-call C API in
 includes `<srl.hpp>` still holds. `saturn/src/opening.cxx` keeps its old
 `openingPlay`/`openingReplay` signatures, so `menu.cxx` never changed.
 
-Video only, and that is not a preference. See the sound section below.
+It carries sound, which took two attempts to get right. See the sound section below.
 
 ## The two invariants, which cost eight hardware builds
 
@@ -78,8 +78,10 @@ there is no debug info. An odd address in a register is the address-error tell.
 Recorded because each looked convincing and each cost a build. The pattern: symptoms that
 fit are not a mechanism, and a working reference beats reasoning every time.
 
-- **The SGL sound driver.** `sat_scsp_init` stands the 68000 down and SRL documents
-  CinepakPlayer as needing it. True, and irrelevant — the crash was in video decode.
+- **The SGL sound driver.** `sat_scsp_init` stood the 68000 down and SRL documents
+  CinepakPlayer as needing it. True, and irrelevant — the crash was in video decode. Wrong
+  twice over, in fact: the conclusion drawn from it, that movie audio was impossible, cost
+  the opening its sound until the alignment bug was found and it could be retried.
 - **The frame DMA into VDP1.** Disabled it; identical hang at the identical step.
 - **GFS open-file limit.** Real bug, fixed, not this one — see below.
 - **`slSynch` / the vblank.** Concluded from a marker that ran *before* the player's task,
@@ -99,11 +101,11 @@ which cleared the port completely and put the fault in our file.
   `GfsFile` at all, and `saturn_cdfile.cxx` keeps its most recent file open on purpose,
   so the movie was a second concurrent open writing past a static array. Latent bug,
   independent of Cinepak.
-- **SCSP slots moved to 24-31**, `SCSP_SLOT_FIRST` in `saturn_scsp.cxx`. Harmless with the
-  68000 down; there if the driver is ever brought back up.
+- **SCSP slots moved to 24-31**, `SCSP_SLOT_FIRST` in `saturn_scsp.cxx`. Required now that
+  the 68000 driver runs alongside this backend: it hands slots out from 0 upward.
 - **Sample heap base 0x020000 → 0x030000.** SRL puts a movie's PCM buffer at
-  `0x25A20000`, which is exactly where the heap used to start. Costs 64 KB. Reclaimable
-  while the openings stay silent.
+  `0x25A20000`, which is exactly where the heap used to start. Costs 64 KB, and is only
+  reclaimable if the openings ever go back to silent.
 
 ## Sound
 
