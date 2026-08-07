@@ -1,6 +1,6 @@
 ---
 name: opening-cinepak-playback
-description: Session handoff at 451c3af — the opening is now a Cinepak movie played through SRL's CinepakPlayer, and the two bitstream invariants ffmpeg violates that make SEGA's decoder crash the SH-2.
+description: Session handoff at 2dc8738 — the opening is a Cinepak movie with audio, and the two bitstream invariants ffmpeg breaks that make SEGA's decoder crash the SH-2.
 metadata:
   type: project
 ---
@@ -105,15 +105,27 @@ which cleared the port completely and put the fault in our file.
   `0x25A20000`, which is exactly where the heap used to start. Costs 64 KB. Reclaimable
   while the openings stay silent.
 
-## Sound, and why the opening is silent
+## Sound
 
-CPK plays movie audio through the SGL 68000 driver and takes its playback clock from it.
-`saturn_scsp.cxx` stands that driver down because this port programs the SCSP directly —
-`slPCMOn` has no loop point, which is the whole reason the direct backend exists. Both
-cannot own the chip. Bringing the driver up was tried and hung the machine.
+The opening carries mono 32 kHz audio, and the SGL 68000 driver is left running for it —
+`slSoundOffWait` is no longer called. That means the driver and this backend share the
+SCSP: the port writes slot registers and master volume directly while the driver believes
+it owns the same chip. `SCSP_SLOT_FIRST` (24) keeps our voices clear of the allocator,
+which hands slots out from 0 upward, and the sample heap starts above the player's PCM
+buffer.
 
-If the opening ever wants sound it has to come from the port's own SCSP path, not from
-the movie file. That is a design conversation, not a tweak.
+This was nearly given up on. The opening shipped silent for a while on the conclusion that
+bringing the driver up hung the machine — wrong. Those builds crashed in
+`cpk_VideoSampleCvid` on the alignment bug that was in every build, driver or not. The
+evidence that the audio path was fine was there and misread: the symptom included one PCM
+buffer looping at exactly the configured 1.02 s, which is a buffer filled once and never
+refilled because the CPU had died on video.
+
+**Fallback if the game's own music breaks:** put `slSoundOffWait()` back in
+`sat_scsp_init` and re-encode the openings with `-an`. A movie with no audio track sets
+`play_pcm` to 0 and is clocked off `CPK_VblIn` alone (`sgl_cpk.h:333,340`), needing neither
+the driver nor sound RAM. Listen for stolen voices and dropped notes in game music before
+trusting the shared arrangement.
 
 ## Environment
 

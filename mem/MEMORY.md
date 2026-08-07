@@ -1,7 +1,7 @@
 # Memory index — Another-Saturn
 
 - [zaturn port blueprint](zaturn-port-blueprint.md) — the reference repo being carbon-copied: layout, submodule strategy, porting philosophy, SRL APIs used.
-- [Opening Cinepak playback](opening-cinepak-playback.md) — session handoff at 451c3af: the opening is a Cinepak movie now, and the two bitstream invariants ffmpeg breaks that crash SEGA's decoder.
+- [Opening Cinepak playback](opening-cinepak-playback.md) — session handoff at 2dc8738: the opening is a Cinepak movie with audio now, and the two bitstream invariants ffmpeg breaks that crash SEGA's decoder.
 - [Opening colour pipeline](opening-colour-pipeline.md) — PARTLY STALE (2026-08-06, commit 5630d2d); its encoder no longer draws the opening, but still produces the title card.
 - [Title menu and opening state](title-menu-and-opening-state.md) — STALE (2026-08-05, commit ec2619e); superseded by the entry above.
 - [Another-Saturn current state](another-saturn-current-state.md) — STALE (2026-07-27, commit 43ed0e5).
