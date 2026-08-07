@@ -83,6 +83,26 @@ using namespace SRL::Types;
 #define MOVIE_DIAGNOSTICS 1
 
 /*----------------------
+ | MOVIE_DIAG_SKIP_DMA
+ | Description: Diagnostic only, and not a fix: drops the copy of each decoded
+ |   frame into the sprite, so the movie runs with nothing ever written to VDP1
+ |   VRAM behind the drawing hardware's back.
+ |
+ |   It exists to settle one question. Playback stops inside Core::Synchronize
+ |   after the player's own task has returned, which leaves slSynch -- the wait
+ |   for VDP1 to finish drawing -- as the thing that does not come back, and it
+ |   stops within a step or two of the single frame that ever gets copied. A
+ |   143 KB SCU DMA into VDP1 VRAM while VDP1 is drawing out of it is the
+ |   obvious way to hang VDP1, but obvious is not measured.
+ |
+ |   With this set the bars keep painting on a black sprite. If the marcher
+ |   runs on past 320 and wraps, the copy is what hangs it. If it stops around
+ |   the same step as before, the copy is innocent and the draw itself is not.
+ | Author: suinevere
+ ----------------------*/
+#define MOVIE_DIAG_SKIP_DMA 1
+
+/*----------------------
  | g_player
  | Description: The live player, or null when nothing is open.
  | Author: suinevere
@@ -244,7 +264,11 @@ static void movieFrameDecoded(SRL::CinepakPlayer &player)
     const auto size = player.GetResolution();
     const auto length = (size.Width * size.Height) << ((int)player.GetDepth() + 1);
 
+#if MOVIE_DIAG_SKIP_DMA
+    (void)length;
+#else
     DMA_ScuMemCopy(SRL::VDP1::Textures[g_sprite].GetData(), player.GetFrameData(), length);
+#endif
 
 #if MOVIE_DIAGNOSTICS
     g_decoded++;
