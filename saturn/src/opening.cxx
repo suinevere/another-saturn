@@ -30,6 +30,31 @@ extern "C" {
 #define OPENING_MOVIE "OPENING.CPK"
 
 /*----------------------
+ | OPENING_USE_REFERENCE
+ | Description: Diagnostic only, and not a fix: plays SEGA's own movie, sound and
+ |   all. Set to 0 for normal behaviour.
+ |
+ |   REFAUD.CPK is SRL's SKYBL.CPK byte for byte -- same mono 32 kHz audio ours
+ |   declares, at a higher data rate than ours, made by SEGA's own tools. It
+ |   answers whether the movie audio skipping is something about the file we
+ |   build or something about the way this port shares the SCSP with the sound
+ |   driver, and nothing short of hearing it will.
+ |
+ |   If SEGA's audio is clean, the fault is in our encode -- most likely that
+ |   ffmpeg dribbles fifty tiny audio chunks a second where SEGA front-loads
+ |   half a second and then feeds quarter-second blocks. If SEGA's audio skips
+ |   the same way, the file was never the problem and the fault is in the
+ |   buffers, the shared SCSP, or the bus.
+ | Author: suinevere
+ ----------------------*/
+#define OPENING_USE_REFERENCE 1
+
+#if OPENING_USE_REFERENCE
+#undef OPENING_MOVIE
+#define OPENING_MOVIE "REFAUD.CPK"
+#endif
+
+/*----------------------
  | s_hasPlayed
  | Description: Whether openingPlay has run. It plays once per boot; the title
  |   screen's attract loop goes through openingReplay instead, which ignores this.

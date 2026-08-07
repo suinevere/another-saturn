@@ -90,6 +90,11 @@ saturn/cd/data/opening.cpk
 saturn/cd/data/OPENING.BIN
 saturn/cd/data/opening.bin
 
+# SRL's SKYBL.CPK, copied in to tell a bad encode apart from a bad player setup.
+# Derived from the SDK sample, restage on demand.
+saturn/cd/data/REFAUD.CPK
+saturn/cd/data/refaud.cpk
+
 # --- Reference captures -------------------------------------------------------
 # The Mega Drive capture tools/mkopeningcpk.py reads. Raw video, 723 MB, and
 # non-free besides: keep it beside the repo, never in it.
