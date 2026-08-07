@@ -12,6 +12,12 @@
  |   The player is heap-allocated rather than static: its constructor hooks
  |   SRL::Core::OnBeforeSync, and a static would run that before sat_boot_init
  |   has brought SRL's arena up.
+ |
+ |   Movies must be word aligned and must not replace a codebook with an empty
+ |   one -- tools/mkopeningcpk.py says why at length. Neither is checked here,
+ |   because neither is survivable: SEGA's decoder walks off and the SH-2 sits
+ |   in the BIOS exception handler with interrupts masked, which looks like a
+ |   frozen picture rather than a fault.
  | Author: suinevere
  | Dependencies: saturn_movie.h, SRL (Core, CinepakPlayer, VDP1, VDP2, Scene2D)
  | Globals: g_player, g_sprite, g_spriteW, g_spriteH, g_completed
@@ -31,76 +37,21 @@ using namespace SRL::Types;
 
 /*----------------------
  | MOVIE_PCM_ADDR / MOVIE_PCM_SAMPLES
- | Description: The sound RAM the movie's audio streams through. Held here
- |   rather than left to SRL's defaults because saturn_scsp.cxx reserves this
- |   exact span -- SCSP_HEAP_BASE starts where it ends -- and the two constants
- |   have to be read together to see that they do not overlap.
+ | Description: The sound RAM a movie's audio would stream through. Nothing uses
+ |   it today -- the openings are encoded without sound, because CPK plays movie
+ |   audio through the SGL 68000 driver and saturn_scsp.cxx stands that driver
+ |   down to own the SCSP outright -- but the reservation is still real:
+ |   SCSP_HEAP_BASE begins where this span ends, and the two constants have to be
+ |   read together to see that they do not overlap.
  |
  |   MOVIE_PCM_SAMPLES is SAMPLES PER CHANNEL, not bytes (sgl_cpk.h:281), and
  |   must be 4096 times 1 to 16. At 4096*8 mono that is 32768 samples, 64 KB,
- |   which is the reservation, and a little over a second of buffer at the
- |   32 kHz the movies are encoded at. SRL's default is 4096*16, which in
- |   stereo would be 256 KB and would run four times past the reservation into
- |   the sample heap.
+ |   which is the reservation. SRL's default is 4096*16, which in stereo would be
+ |   256 KB and would run four times past it into the sample heap.
  | Author: suinevere
  ----------------------*/
 #define MOVIE_PCM_ADDR    ((uint16_t *)0x25A20000)
 #define MOVIE_PCM_SAMPLES (4096 * 8)
-
-/*----------------------
- | MOVIE_DIAGNOSTICS
- | Description: Draws playback state into the movie's own sprite as coloured
- |   bars. Set to 0 to remove it entirely.
- |
- |   It writes into the sprite rather than printing because there is nowhere to
- |   print to: SRL::ASCII is a replacement for slPrint and wants NBG0, which
- |   this port has configured as a bitmap, and SRL's emulator logger writes to
- |   0x24001000 for Kronos, which Mednafen does not read. The sprite is already
- |   on screen and needs no layer of its own.
- |
- |   Reading the bars, from the top of the picture:
- |     row 0   one white pixel, marching left to right, one step per call.
- |             Moving means the loop is still running and this is a stalled
- |             stream. Stopped means the CPU is not getting here at all and the
- |             picture is frozen because nothing is driving it.
- |     row 4   green, one pixel per decoded frame, wrapping. Stuck at one means
- |             only the preloaded frame ever arrived.
- |     row 8   blue, twenty pixels per CinepakPlayer::PlaybackStateEnum:
- |             nothing = Stop, 20 = Paused, 40 = Started, 60 = HeaderProcessing,
- |             80 = Timer (the normal playing state), 100 = Completed. A bar
- |             running the full width is Error, which is -1 widened.
- |     row 12  red, one pixel per unit of the last CPK error code, only if the
- |             player raised one. See the CPK_ERR_ values in sgl_cpk.h.
- |     rows 16, 20, 28, 24
- |             how far through each step the loop got, in that order: entry,
- |             sprite queued, inside Core::Synchronize after the player's task
- |             ran, and returned from Core::Synchronize. All four advance
- |             together while the loop is healthy, so whichever row ends one
- |             pixel short of the ones before it names the call that never
- |             came back.
- | Author: suinevere
- ----------------------*/
-#define MOVIE_DIAGNOSTICS 1
-
-/*----------------------
- | MOVIE_DIAG_SKIP_DMA
- | Description: Diagnostic only, and not a fix: drops the copy of each decoded
- |   frame into the sprite, so the movie runs with nothing ever written to VDP1
- |   VRAM behind the drawing hardware's back.
- |
- |   It exists to settle one question. Playback stops inside Core::Synchronize
- |   after the player's own task has returned, which leaves slSynch -- the wait
- |   for VDP1 to finish drawing -- as the thing that does not come back, and it
- |   stops within a step or two of the single frame that ever gets copied. A
- |   143 KB SCU DMA into VDP1 VRAM while VDP1 is drawing out of it is the
- |   obvious way to hang VDP1, but obvious is not measured.
- |
- |   With this set the bars keep painting on a black sprite. If the marcher
- |   runs on past 320 and wraps, the copy is what hangs it. If it stops around
- |   the same step as before, the copy is innocent and the draw itself is not.
- | Author: suinevere
- ----------------------*/
-#define MOVIE_DIAG_SKIP_DMA 0
 
 /*----------------------
  | g_player
@@ -133,117 +84,6 @@ static uint16_t g_spriteH = 0;
  ----------------------*/
 static bool g_completed = false;
 
-#if MOVIE_DIAGNOSTICS
-/*----------------------
- | g_steps / g_decoded / g_error
- | Description: Counters behind the diagnostic bars: calls to sat_movie_step,
- |   invocations of the frame event, and the last error the player raised.
- | Author: suinevere
- ----------------------*/
-static uint32_t g_steps   = 0;
-static uint32_t g_decoded = 0;
-static int32_t  g_error   = 0;
-
-/*----------------------
- | movieOnError
- | Description: Records the last CPK error code for the diagnostic bars. Bound
- |   to the player's static error event.
- | Author: suinevere
- | Globals: g_error
- | Params: code -- a CPK_ERR_ value from sgl_cpk.h
- | Returns: N/A
- ----------------------*/
-static void movieOnError(int32_t code)
-{
-    g_error = code;
-}
-
-/*----------------------
- | movieBar
- | Description: Draws one horizontal run of pixels into the sprite.
- | Author: suinevere
- | Globals: g_sprite, g_spriteW
- | Params: row -- y in the sprite; from -- first x; length -- pixels, clamped
- |         to the sprite width; colour -- RGB555 with the opaque bit set
- | Returns: N/A
- ----------------------*/
-static void movieBar(uint16_t row, uint16_t from, uint32_t length, uint16_t colour)
-{
-    uint16_t *pixels = (uint16_t *)SRL::VDP1::Textures[g_sprite].GetData();
-    uint32_t x;
-
-    if (pixels == nullptr)
-    {
-        return;
-    }
-
-    for (x = from; x < from + length && x < g_spriteW; x++)
-    {
-        pixels[(uint32_t)row * g_spriteW + x] = colour;
-    }
-}
-
-/*----------------------
- | movieDiagnostics
- | Description: Repaints the diagnostic bars from the counters. Called once per
- |   step, before the sprite is queued, so a stalled stream leaves them on
- |   screen and a running one has them overwritten by each decoded frame.
- | Author: suinevere
- | Globals: g_steps, g_decoded, g_error, g_player
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-static void movieDiagnostics(void)
-{
-    const uint32_t status = (g_player != nullptr) ? (uint32_t)g_player->GetStatus() : 0;
-
-    movieBar(0, (uint16_t)(g_steps % g_spriteW), 1, 0xFFFF);
-    movieBar(4, 0, g_decoded % g_spriteW, 0x83E0);
-    movieBar(8, 0, status * 20, 0xFC00);
-
-    if (g_error != 0)
-    {
-        movieBar(12, 0, (uint32_t)(g_error < 0 ? -g_error : g_error), 0x801F);
-    }
-}
-
-/*----------------------
- | moviePhase
- | Description: Marks how far through a step the loop got, one pixel per step
- |   at the step's own x. Three rows are marked at three points, so whichever
- |   row stops one pixel short of the others is the call that did not return.
- |
- |   Row 16 is entry, row 20 is after the sprite is queued, row 24 is after
- |   Core::Synchronize -- which is where CPK_Task and the frame event run, and
- |   so the likeliest place to stop.
- | Author: suinevere
- | Globals: g_steps
- | Params: row -- y in the sprite
- | Returns: N/A
- ----------------------*/
-static void moviePhase(uint16_t row)
-{
-    movieBar(row, (uint16_t)(g_steps % g_spriteW), 1, 0xFFFF);
-}
-
-/*----------------------
- | movieBeforeSync
- | Description: Marks row 28 from inside Core::Synchronize's before-sync event,
- |   registered after the player so it runs after the player's own task. It
- |   splits the two halves of that call: if row 28 keeps up with row 20 but
- |   row 24 falls short, CPK_Task returned and slSynch is what hung, which
- |   means the vblank handler. If row 28 falls short too, CPK_Task is what hung.
- | Author: suinevere
- | Globals: g_steps
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-static void movieBeforeSync(void)
-{
-    moviePhase(28);
-}
-#endif
-
 /*----------------------
  | movieFrameDecoded
  | Description: Copies a freshly decoded frame into the sprite's VRAM. Bound to
@@ -264,15 +104,7 @@ static void movieFrameDecoded(SRL::CinepakPlayer &player)
     const auto size = player.GetResolution();
     const auto length = (size.Width * size.Height) << ((int)player.GetDepth() + 1);
 
-#if MOVIE_DIAG_SKIP_DMA
-    (void)length;
-#else
     DMA_ScuMemCopy(SRL::VDP1::Textures[g_sprite].GetData(), player.GetFrameData(), length);
-#endif
-
-#if MOVIE_DIAGNOSTICS
-    g_decoded++;
-#endif
 }
 
 /*----------------------
@@ -372,22 +204,6 @@ extern "C" int sat_movie_open(const char *file)
 
     SRL::VDP2::NBG0::ScrollDisable();
 
-#if MOVIE_DIAGNOSTICS
-    static bool errorHooked = false;
-
-    if (!errorHooked)
-    {
-        errorHooked = true;
-        SRL::CinepakPlayer::OnError += movieOnError;
-    }
-
-    g_steps = 0;
-    g_decoded = 0;
-    g_error = 0;
-
-    SRL::Core::OnBeforeSync += movieBeforeSync;
-#endif
-
     g_completed = false;
     g_player->Play();
 
@@ -401,27 +217,13 @@ extern "C" int sat_movie_step(void)
         return 0;
     }
 
-#if MOVIE_DIAGNOSTICS
-    movieDiagnostics();
-    moviePhase(16);
-#endif
-
     SRL::Scene2D::DrawSprite(
         g_sprite,
         SRL::Math::Vector3D(0.0, 0.0, MOVIE_DEPTH),
         SRL::Math::Vector2D(1.0, 1.0),
         SRL::Scene2D::ZoomPoint::Center);
 
-#if MOVIE_DIAGNOSTICS
-    moviePhase(20);
-#endif
-
     SRL::Core::Synchronize();
-
-#if MOVIE_DIAGNOSTICS
-    moviePhase(24);
-    g_steps++;
-#endif
 
     return g_completed ? 0 : 1;
 }
@@ -432,10 +234,6 @@ extern "C" void sat_movie_close(void)
     {
         return;
     }
-
-#if MOVIE_DIAGNOSTICS
-    SRL::Core::OnBeforeSync -= movieBeforeSync;
-#endif
 
     g_player->Stop();
     g_player->UnloadMovie();

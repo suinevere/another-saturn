@@ -59,9 +59,4 @@ g++ $OWN_FLAGS -I../src \
     -o run_tests_pagerle test_page_rle.cxx ../src/page_rle.cxx
 ./run_tests_pagerle
 
-echo "== opening codec =="
-g++ $OWN_FLAGS -I../src \
-    -o run_tests_opening test_opening_codec.cxx ../src/opening_codec.cxx ../src/page_rle.cxx
-./run_tests_opening
-
 echo "all suites passed"

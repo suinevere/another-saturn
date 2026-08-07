@@ -30,31 +30,6 @@ extern "C" {
 #define OPENING_MOVIE "OPENING.CPK"
 
 /*----------------------
- | OPENING_USE_REFERENCE
- | Description: Diagnostic only, and not a fix: plays SEGA's own movie instead
- |   of ours. Set to 0 for normal behaviour.
- |
- |   REFTEST.CPK is SRL's SKYBL.CPK with the audio dropped and the video stream
- |   copied rather than re-encoded, so the Cinepak data in it is byte for byte
- |   what SEGA's tools produced. That splits a question this port has not been
- |   able to answer any other way. Playback dies inside cpk_VideoSampleCvid,
- |   SEGA's own decoder, and either the data it is being fed is at fault or the
- |   way this port sets the player up is.
- |
- |   If SEGA's own movie plays, the encoder is at fault and the difference is
- |   somewhere in what ffmpeg emits. If it dies in the same place, the file was
- |   never the problem and the fault is in the buffers, the memory or the
- |   VDP1 setup around it.
- | Author: suinevere
- ----------------------*/
-#define OPENING_USE_REFERENCE 0
-
-#if OPENING_USE_REFERENCE
-#undef OPENING_MOVIE
-#define OPENING_MOVIE "REFTEST.CPK"
-#endif
-
-/*----------------------
  | s_hasPlayed
  | Description: Whether openingPlay has run. It plays once per boot; the title
  |   screen's attract loop goes through openingReplay instead, which ignores this.

@@ -59,8 +59,6 @@ saturn/tests/run_tests_menudraw
 saturn/tests/run_tests_menudraw.exe
 saturn/tests/run_tests_menuart
 saturn/tests/run_tests_menuart.exe
-saturn/tests/run_tests_opening
-saturn/tests/run_tests_opening.exe
 
 # --- Non-free game data ------------------------------------------------------
 # Another World's original PC DOS data files. Required to run, never committed.
@@ -81,16 +79,12 @@ saturn/cd/data/SDDRVS.DAT
 saturn/cd/data/SDDRVS.TSK
 
 # --- Generated title opening stream ------------------------------------------
-# tools/mkopeningcpk.py builds the CPK from the capture in images/; the older
-# tools/mkopening.py built the BIN from images/genesis-opening.mp4. Derived
-# data, regenerated on demand rather than committed.
+# tools/mkopeningcpk.py builds the CPK the game plays. The BIN is left over from
+# the palette-based player that preceded it and nothing reads it now, but
+# tools/mkopening.py still writes one as a side effect of being imported by
+# tools/mkmenuart.py for its frame loader. Derived data either way.
 saturn/cd/data/OPENING.CPK
 saturn/cd/data/opening.cpk
-
-# SRL's SKYBL.CPK with the audio dropped, used to tell a bad encode apart from
-# a bad player setup. Derived from the SDK sample, regenerate on demand.
-saturn/cd/data/REFTEST.CPK
-saturn/cd/data/reftest.cpk
 saturn/cd/data/OPENING.BIN
 saturn/cd/data/opening.bin
 
