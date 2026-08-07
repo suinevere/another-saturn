@@ -71,6 +71,11 @@ using namespace SRL::Types;
  |             running the full width is Error, which is -1 widened.
  |     row 12  red, one pixel per unit of the last CPK error code, only if the
  |             player raised one. See the CPK_ERR_ values in sgl_cpk.h.
+ |     rows 16, 20, 24
+ |             how far through each step the loop got: entry, sprite queued,
+ |             and returned from Core::Synchronize. All three advance together
+ |             while the loop is healthy, so whichever row ends one pixel short
+ |             of the others names the call that never came back.
  | Author: suinevere
  ----------------------*/
 #define MOVIE_DIAGNOSTICS 1
@@ -178,8 +183,25 @@ static void movieDiagnostics(void)
     {
         movieBar(12, 0, (uint32_t)(g_error < 0 ? -g_error : g_error), 0x801F);
     }
+}
 
-    g_steps++;
+/*----------------------
+ | moviePhase
+ | Description: Marks how far through a step the loop got, one pixel per step
+ |   at the step's own x. Three rows are marked at three points, so whichever
+ |   row stops one pixel short of the others is the call that did not return.
+ |
+ |   Row 16 is entry, row 20 is after the sprite is queued, row 24 is after
+ |   Core::Synchronize -- which is where CPK_Task and the frame event run, and
+ |   so the likeliest place to stop.
+ | Author: suinevere
+ | Globals: g_steps
+ | Params: row -- y in the sprite
+ | Returns: N/A
+ ----------------------*/
+static void moviePhase(uint16_t row)
+{
+    movieBar(row, (uint16_t)(g_steps % g_spriteW), 1, 0xFFFF);
 }
 #endif
 
@@ -336,6 +358,7 @@ extern "C" int sat_movie_step(void)
 
 #if MOVIE_DIAGNOSTICS
     movieDiagnostics();
+    moviePhase(16);
 #endif
 
     SRL::Scene2D::DrawSprite(
@@ -344,7 +367,16 @@ extern "C" int sat_movie_step(void)
         SRL::Math::Vector2D(1.0, 1.0),
         SRL::Scene2D::ZoomPoint::Center);
 
+#if MOVIE_DIAGNOSTICS
+    moviePhase(20);
+#endif
+
     SRL::Core::Synchronize();
+
+#if MOVIE_DIAGNOSTICS
+    moviePhase(24);
+    g_steps++;
+#endif
 
     return g_completed ? 0 : 1;
 }
