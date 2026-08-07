@@ -25,6 +25,13 @@ Description: Builds saturn/cd/data/OPENING.CPK from the Mega Drive capture in
   Sound for the opening, if it is ever wanted, has to come from the port's own
   SCSP path rather than from the movie file.
 
+  The output is word aligned afterwards by align(), and that is the thing that
+  actually makes it play. ffmpeg leaves vector chunks at odd lengths; SEGA's
+  decoder reads the stream with 16-bit loads, and the SH-2 address errors on
+  the first unaligned one. The file crashed on its very first strip, 6153
+  bytes. SRL's own SKYBL.CPK has not one odd chunk, strip, frame or sample
+  offset anywhere in it.
+
   skip_empty_cb is the one that stops SEGA's decoder crashing, and it is not
   optional. Left at its default, ffmpeg emits a zero-entry FULL codebook chunk
   (0x2000 or 0x2200, four bytes, no payload) inside inter strips -- its help
@@ -90,6 +97,107 @@ def find_ffmpeg():
                      "FFMPEG_FALLBACKS in tools/mkopeningcpk.py")
 
 
+def align_frame(frame):
+    """Pad every chunk in one Cinepak frame to an even length.
+
+    The frame's own 24-bit length field is eight less than the frame really
+    is -- both ffmpeg and SEGA's encoder write it that way, and the strips run
+    to the sample length the STAB gives. Trusting that field as the end of the
+    data silently eats the last chunk of every frame, so the sample length is
+    what bounds the walk and the field is rewritten to match on the way out.
+    """
+    strips = struct.unpack(">H", frame[8:10])[0]
+    body = bytearray()
+    pos = 12
+
+    for _ in range(strips):
+        if pos + 12 > len(frame):
+            break
+        sid, strip_size, y0, x0, y1, x1 = struct.unpack(">HHHHHH", frame[pos:pos + 12])
+        chunks = bytearray()
+        cursor = pos + 12
+        end = min(pos + strip_size, len(frame))
+
+        while cursor + 4 <= end:
+            cid, chunk_size = struct.unpack(">HH", frame[cursor:cursor + 4])
+            if chunk_size < 4:
+                raise SystemExit("chunk %04X claims %d bytes" % (cid, chunk_size))
+            data = frame[cursor + 4:min(cursor + chunk_size, end)]
+            if len(data) & 1:
+                data += b"\x00"
+            chunks += struct.pack(">HH", cid, len(data) + 4) + data
+            cursor += chunk_size
+
+        if cursor != end:
+            raise SystemExit("strip %04X did not consume exactly: stopped at %d "
+                             "of %d" % (sid, cursor, end))
+
+        body += struct.pack(">HHHHHH", sid, len(chunks) + 12, y0, x0, y1, x1) + chunks
+        pos += strip_size
+
+    if pos != len(frame):
+        raise SystemExit("frame did not consume exactly: %d of %d" % (pos, len(frame)))
+
+    total = len(body) + 12
+    field = total - 8
+    head = bytearray(frame[:12])
+    head[1] = (field >> 16) & 0xFF
+    head[2] = (field >> 8) & 0xFF
+    head[3] = field & 0xFF
+    return bytes(head) + bytes(body)
+
+
+def align():
+    """Rewrite OUT so every chunk, strip, frame and sample offset is even.
+
+    SEGA's decoder reads the stream with 16-bit loads and the SH-2 raises an
+    address error on an unaligned one, so a single odd-sized chunk anywhere
+    kills the machine the moment the decoder steps past it. ffmpeg's Cinepak
+    encoder does not pad, and its own decoder does not care. Only the vector
+    chunks are ever odd -- a codebook is always 4 + 6n bytes -- and their
+    trailing bytes are never read, because the decoder consumes exactly as many
+    blocks as the strip geometry calls for. So a pad byte is invisible to it.
+    """
+    d = open(OUT, "rb").read()
+    header_len = struct.unpack(">I", d[4:8])[0]
+    header = bytearray(d[:header_len])
+
+    off = 16
+    stab = None
+    while off < header_len:
+        tag = header[off:off + 4]
+        size = struct.unpack(">I", header[off + 4:off + 8])[0]
+        if tag == b"STAB":
+            _, count = struct.unpack(">II", header[off + 8:off + 16])
+            stab = off + 16
+            break
+        off += size
+
+    if stab is None:
+        raise SystemExit("no STAB chunk in %s" % OUT)
+
+    body = bytearray()
+    entries = []
+
+    for i in range(count):
+        pos = stab + i * 16
+        offset, length, info1, info2 = struct.unpack(">IIII", header[pos:pos + 16])
+        sample = d[header_len + offset:header_len + offset + length]
+        if info1 != 0xFFFFFFFF and len(sample) >= 24:
+            sample = align_frame(sample)
+        if len(body) & 1:
+            body += b"\x00"
+        entries.append((len(body), len(sample), info1, info2))
+        body += sample
+
+    for i, entry in enumerate(entries):
+        struct.pack_into(">IIII", header, stab + i * 16, *entry)
+
+    with open(OUT, "wb") as f:
+        f.write(bytes(header))
+        f.write(bytes(body))
+
+
 def verify():
     """Fail loudly on the two bitstream shapes SEGA's decoder cannot survive."""
     d = open(OUT, "rb").read()
@@ -111,12 +219,15 @@ def verify():
 
     start, count = table
     empty = 0
+    odd = 0
     strip_counts = set()
 
     for i in range(count):
         offset, length, info1, _ = struct.unpack(">IIII", d[start + i * 16:start + 16 + i * 16])
         if info1 == 0xFFFFFFFF:
             continue
+        if offset & 1 or length & 1:
+            odd += 1
         frame = d[header_len + offset:header_len + offset + length]
         if len(frame) < 24:
             continue
@@ -127,16 +238,25 @@ def verify():
             if pos + 12 > len(frame):
                 break
             _, strip_size = struct.unpack(">HH", frame[pos:pos + 4])
+            if strip_size & 1:
+                odd += 1
             cursor = pos + 12
             end = min(pos + strip_size, len(frame))
             while cursor + 4 <= end:
                 chunk, chunk_size = struct.unpack(">HH", frame[cursor:cursor + 4])
                 if chunk_size < 4:
                     break
+                if chunk_size & 1:
+                    odd += 1
                 if chunk in (0x2000, 0x2200) and chunk_size == 4:
                     empty += 1
                 cursor += chunk_size
             pos += strip_size
+
+    if odd:
+        raise SystemExit("%s has %d odd-length chunks, strips or samples. The "
+                         "SH-2 address errors on the first unaligned 16-bit read "
+                         "SEGA's decoder makes. Did align() run?" % (OUT, odd))
 
     if empty:
         raise SystemExit("%s has %d empty full-codebook chunks; SEGA's decoder "
@@ -146,7 +266,8 @@ def verify():
         raise SystemExit("%s varies its strip count (%s); SEGA's decoder faults "
                          "when it changes mid stream." % (OUT, sorted(strip_counts)))
 
-    print("verified: constant %d strips, no empty codebook chunks" % STRIPS)
+    print("verified: constant %d strips, everything word aligned, "
+          "no empty codebook chunks" % STRIPS)
 
 
 def encode():
@@ -165,6 +286,7 @@ def encode():
         "-f", "film_cpk", OUT,
     ])
 
+    align()
     verify()
 
     size = os.path.getsize(OUT)
