@@ -103,9 +103,13 @@ which cleared the port completely and put the fault in our file.
   independent of Cinepak.
 - **SCSP slots moved to 24-31**, `SCSP_SLOT_FIRST` in `saturn_scsp.cxx`. Required now that
   the 68000 driver runs alongside this backend: it hands slots out from 0 upward.
-- **Sample heap base 0x020000 → 0x030000.** SRL puts a movie's PCM buffer at
-  `0x25A20000`, which is exactly where the heap used to start. Costs 64 KB, and is only
-  reclaimable if the openings ever go back to silent.
+- **Sample heap base 0x020000 → 0x040000.** SRL puts a movie's PCM buffer at
+  `0x25A20000`, which is exactly where the heap used to start. The heap gives up 128 KB
+  for it and is down to 256 KB, and it is only reclaimable if the openings ever go back to
+  silent. The buffer was tried at 64 KB to keep more of the heap and the audio dropped out
+  twice a second: CPK refills on half-buffer boundaries, so the half-life is the refill
+  deadline, and 64 KB at 32 kHz mono is a 0.51 s deadline. `MOVIE_PCM_SAMPLES` sizes the
+  reservation and `SCSP_HEAP_BASE` follows it, not the reverse.
 
 ## Sound
 
