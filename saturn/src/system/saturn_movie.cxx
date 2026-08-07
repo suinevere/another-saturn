@@ -37,21 +37,25 @@ using namespace SRL::Types;
 
 /*----------------------
  | MOVIE_PCM_ADDR / MOVIE_PCM_SAMPLES
- | Description: The sound RAM a movie's audio would stream through. Nothing uses
- |   it today -- the openings are encoded without sound, because CPK plays movie
- |   audio through the SGL 68000 driver and saturn_scsp.cxx stands that driver
- |   down to own the SCSP outright -- but the reservation is still real:
- |   SCSP_HEAP_BASE begins where this span ends, and the two constants have to be
- |   read together to see that they do not overlap.
+ | Description: The sound RAM a movie's audio streams through. Held here rather
+ |   than left to SRL's defaults because saturn_scsp.cxx reserves this exact
+ |   span -- SCSP_HEAP_BASE begins where it ends -- and the two constants have to
+ |   be read together to see that they do not overlap.
  |
  |   MOVIE_PCM_SAMPLES is SAMPLES PER CHANNEL, not bytes (sgl_cpk.h:281), and
- |   must be 4096 times 1 to 16. At 4096*8 mono that is 32768 samples, 64 KB,
- |   which is the reservation. SRL's default is 4096*16, which in stereo would be
- |   256 KB and would run four times past it into the sample heap.
+ |   must be 4096 times 1 to 16. At 4096*16 mono that is 65536 samples, 128 KB,
+ |   which is the reservation, and 2.05 seconds of buffer at the 32 kHz the
+ |   movies are encoded at.
+ |
+ |   Do not shrink it. CPK refills on half-buffer boundaries, so the buffer's
+ |   half-life is how long a refill has to arrive in. At 4096*8 that was 0.51
+ |   seconds and the audio dropped out on almost every one of them. Stereo would
+ |   double the bytes for the same slack, which is the other reason the movies
+ |   are mono.
  | Author: suinevere
  ----------------------*/
 #define MOVIE_PCM_ADDR    ((uint16_t *)0x25A20000)
-#define MOVIE_PCM_SAMPLES (4096 * 8)
+#define MOVIE_PCM_SAMPLES (4096 * 16)
 
 /*----------------------
  | g_player

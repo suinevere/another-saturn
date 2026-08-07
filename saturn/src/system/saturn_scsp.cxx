@@ -36,19 +36,21 @@
 
 /*----------------------
  | SCSP_HEAP_BASE / SCSP_HEAP_LIMIT
- | Description: The span of sound RAM samples are uploaded into: 0x030000 to
- |   0x080000, 320 KB of the bank's 512.
+ | Description: The span of sound RAM samples are uploaded into: 0x040000 to
+ |   0x080000, 256 KB of the bank's 512.
  |
  |   The low 128 KB is left alone because it holds the SGL driver image and the
  |   areas BOOTSND.MAP declares.
  |
- |   The next 64 KB is left alone for the Cinepak player's PCM buffer, which
+ |   The next 128 KB is left alone for the Cinepak player's PCM buffer, which
  |   SRL places at 0x25A20000 -- sound RAM offset 0x020000, which is where this
- |   heap used to start. They overlapped exactly. See saturn_movie.cxx, which
- |   sizes the buffer to fit the reservation rather than the other way round.
+ |   heap originally started. They overlapped exactly. The buffer was tried at
+ |   half this size to give the heap more room and the movie audio dropped out
+ |   twice a second, so the reservation is sized by MOVIE_PCM_SAMPLES in
+ |   saturn_movie.cxx and this follows it, not the other way round.
  | Author: suinevere
  ----------------------*/
-#define SCSP_HEAP_BASE   0x030000u
+#define SCSP_HEAP_BASE   0x040000u
 #define SCSP_HEAP_LIMIT  0x080000u
 
 #define SCSP_CHANNELS    4
