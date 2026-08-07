@@ -25,6 +25,20 @@ Description: Builds saturn/cd/data/OPENING.CPK from the Mega Drive capture in
   Sound for the opening, if it is ever wanted, has to come from the port's own
   SCSP path rather than from the movie file.
 
+  skip_empty_cb is the one that stops SEGA's decoder crashing, and it is not
+  optional. Left at its default, ffmpeg emits a zero-entry FULL codebook chunk
+  (0x2000 or 0x2200, four bytes, no payload) inside inter strips -- its help
+  text calls this keeping the vintage MacOS decoder happy. SEGA's decoder takes
+  it literally, empties the codebook, and then the inter vectors in the same
+  strip index into nothing. The second frame of the movie did exactly this, and
+  cpk_VideoSampleCvid faulted on it every run: one frame on screen, the SCSP
+  looping its last buffer, the SH-2 parked in the BIOS exception handler.
+  SRL's own SKYBL.CPK never puts a full codebook in an inter strip at all -- it
+  uses partial updates (0x2100/0x2300), which ffmpeg cannot emit.
+
+  Keep every frame's chunk list free of four-byte 0x2000/0x2200 entries if this
+  is ever re-tuned. That is the invariant, not the flag.
+
   The strip count is pinned to a constant 2 and that is load bearing. ffmpeg
   picks a strip count per frame by default (min_strips 1, max_strips 3), so it
   emits a mix of 1 and 2 strip frames. SEGA's decoder does not survive the
@@ -45,6 +59,7 @@ Usage: python tools/mkopeningcpk.py
 """
 import os
 import shutil
+import struct
 import subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -75,6 +90,65 @@ def find_ffmpeg():
                      "FFMPEG_FALLBACKS in tools/mkopeningcpk.py")
 
 
+def verify():
+    """Fail loudly on the two bitstream shapes SEGA's decoder cannot survive."""
+    d = open(OUT, "rb").read()
+    header_len = struct.unpack(">I", d[4:8])[0]
+    off = 16
+    table = None
+
+    while off < header_len:
+        tag = d[off:off + 4]
+        size = struct.unpack(">I", d[off + 4:off + 8])[0]
+        if tag == b"STAB":
+            _, count = struct.unpack(">II", d[off + 8:off + 16])
+            table = (off + 16, count)
+            break
+        off += size
+
+    if table is None:
+        raise SystemExit("no STAB chunk in %s" % OUT)
+
+    start, count = table
+    empty = 0
+    strip_counts = set()
+
+    for i in range(count):
+        offset, length, info1, _ = struct.unpack(">IIII", d[start + i * 16:start + 16 + i * 16])
+        if info1 == 0xFFFFFFFF:
+            continue
+        frame = d[header_len + offset:header_len + offset + length]
+        if len(frame) < 24:
+            continue
+        strips = struct.unpack(">H", frame[8:10])[0]
+        strip_counts.add(strips)
+        pos = 12
+        for _ in range(strips):
+            if pos + 12 > len(frame):
+                break
+            _, strip_size = struct.unpack(">HH", frame[pos:pos + 4])
+            cursor = pos + 12
+            end = min(pos + strip_size, len(frame))
+            while cursor + 4 <= end:
+                chunk, chunk_size = struct.unpack(">HH", frame[cursor:cursor + 4])
+                if chunk_size < 4:
+                    break
+                if chunk in (0x2000, 0x2200) and chunk_size == 4:
+                    empty += 1
+                cursor += chunk_size
+            pos += strip_size
+
+    if empty:
+        raise SystemExit("%s has %d empty full-codebook chunks; SEGA's decoder "
+                         "faults on these. Is -skip_empty_cb still set?" % (OUT, empty))
+
+    if strip_counts != {STRIPS}:
+        raise SystemExit("%s varies its strip count (%s); SEGA's decoder faults "
+                         "when it changes mid stream." % (OUT, sorted(strip_counts)))
+
+    print("verified: constant %d strips, no empty codebook chunks" % STRIPS)
+
+
 def encode():
     """Cut the front matter out of SRC and write it to OUT as Cinepak."""
     if not os.path.exists(SRC):
@@ -87,8 +161,11 @@ def encode():
         "-t", str(DURATION), "-i", SRC,
         "-c:v", "cinepak", "-r", str(FPS), "-an",
         "-min_strips", str(STRIPS), "-max_strips", str(STRIPS),
+        "-skip_empty_cb", "1",
         "-f", "film_cpk", OUT,
     ])
+
+    verify()
 
     size = os.path.getsize(OUT)
     print("wrote %s (%.1f MB, %.0f KB/s)" % (OUT, size / 1048576.0,

@@ -47,7 +47,7 @@ extern "C" {
  |   VDP1 setup around it.
  | Author: suinevere
  ----------------------*/
-#define OPENING_USE_REFERENCE 1
+#define OPENING_USE_REFERENCE 0
 
 #if OPENING_USE_REFERENCE
 #undef OPENING_MOVIE
