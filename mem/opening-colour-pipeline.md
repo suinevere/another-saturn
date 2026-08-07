@@ -5,6 +5,14 @@ metadata:
   type: project
 ---
 
+> **PARTLY STALE.** Superseded for the opening by [[opening-cinepak-playback]]: the
+> opening is a Cinepak movie now, `OPENING.BIN` is not read by anything, and the navy
+> fringe described below is gone with the code that produced it. What is still live is
+> the title card — `tools/mkmenuart.py` imports this pipeline's `load_frames` and
+> `DARK_SUM` from `tools/mkopening.py`, so the palette reasoning here still governs
+> `menu_art.cxx`. Note that `mkopening.py` cannot currently run: its source
+> `images/genesis-opening.mp4` is gone.
+
 Repo `C:\Users\saggl\CLionProjects\Another-Saturn`, branch `main`, **HEAD `5630d2d`**.
 **Five commits are unpushed** (`dcba45d..5630d2d`); everything before that is on origin.
 
