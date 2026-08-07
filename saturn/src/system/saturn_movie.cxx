@@ -100,7 +100,7 @@ using namespace SRL::Types;
  |   the same step as before, the copy is innocent and the draw itself is not.
  | Author: suinevere
  ----------------------*/
-#define MOVIE_DIAG_SKIP_DMA 1
+#define MOVIE_DIAG_SKIP_DMA 0
 
 /*----------------------
  | g_player

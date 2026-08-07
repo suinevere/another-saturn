@@ -25,6 +25,17 @@ Description: Builds saturn/cd/data/OPENING.CPK from the Mega Drive capture in
   Sound for the opening, if it is ever wanted, has to come from the port's own
   SCSP path rather than from the movie file.
 
+  The strip count is pinned to a constant 2 and that is load bearing. ffmpeg
+  picks a strip count per frame by default (min_strips 1, max_strips 3), so it
+  emits a mix of 1 and 2 strip frames. SEGA's decoder does not survive the
+  count changing mid stream: inter frames reference the previous frame's
+  per-strip codebooks, and when the strips are renumbered underneath it,
+  cpk_VideoSampleCvid walks off into an address error and the SH-2 sits in the
+  BIOS exception handler with interrupts masked. That looks exactly like a
+  freeze -- one frame on screen, the SCSP looping its last buffer, no CPK error
+  ever raised, because the CPU is gone rather than stuck. SRL's own SKYBL.CPK
+  is a constant 2 strips, so that is what this matches.
+
   ffmpeg writes the FILM timebase as the frame rate (base_freq 25 here), where
   SEGA's own encoder wrote 600 with per-frame durations of 20. That difference
   is not reachable through ffmpeg's CLI. It has not caused trouble, but it is
@@ -42,6 +53,7 @@ OUT = os.path.join(ROOT, "saturn", "cd", "data", "OPENING.CPK")
 
 DURATION = 31.5              # seconds of front matter, up to the fade to black
 FPS = 25                     # exact 2:1 decimation of the 50 fps source
+STRIPS = 2                   # constant, matching SKYBL.CPK -- see the note above
 
 # Where ffmpeg gets installed when it is not on PATH. Checked as a fallback so
 # the tool works straight after a winget install without a shell restart.
@@ -74,6 +86,7 @@ def encode():
         find_ffmpeg(), "-v", "error", "-y",
         "-t", str(DURATION), "-i", SRC,
         "-c:v", "cinepak", "-r", str(FPS), "-an",
+        "-min_strips", str(STRIPS), "-max_strips", str(STRIPS),
         "-f", "film_cpk", OUT,
     ])
 
