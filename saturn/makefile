@@ -3,7 +3,7 @@ SRL_MAX_TEXTURES = 100          # Number of VDP1 texture slots
 SRL_MODE = NTSC                 # Valid options are PAL or NTSC
 SRL_HIGH_RES = 0                # 480i mode
 SRL_FRAMERATE = 1               # Framerate control (0=dynamic, 1=< 60/value)
-SRL_MAX_CD_BACKGROUND_JOBS = 1  # Maximum number of files GFS can open at once
+SRL_MAX_CD_BACKGROUND_JOBS = 3  # Maximum number of files GFS can open at once
 SRL_MAX_CD_FILES = 256          # Maximum number of files on a CD
 SRL_MAX_CD_RETRIES = 5          # Number of times to retry on unsuccessful read
 
@@ -16,6 +16,20 @@ SGL_MAX_VERTICES = 2500         # Number of vertices that can be used
 SGL_MAX_POLYGONS = 1500         # Number of polygons that can be used
 SGL_MAX_EVENTS = 1             	# Number of events that can be used
 SGL_MAX_WORKS = 1             	# Number of works that can be used
+
+# SRL_MAX_CD_BACKGROUND_JOBS is the open-file limit, not a job count: SRL feeds
+# it straight to GFS_Init's open_max (srl_cd.hpp:629) and sizes the GFS work
+# area from it as sizeof(GfsMng) + (open_max - 1) * sizeof(GfsFile). At 1 there
+# is room for no GfsFile record at all, so a second concurrent open does not
+# fail cleanly -- it writes past the end of that static array.
+#
+# It has to be at least 3. saturn_cdfile.cxx keeps its most recently used file
+# open on purpose so repeated Bank::read calls skip the GFS name lookup, and it
+# will open a second uncached handle if that one is busy. The Cinepak player
+# opens the movie on top of both and streams from it for the length of the
+# opening. At 1 that showed up as the opening freezing on its first frame with
+# the audio buffer looping, because the movie's stream state was the thing
+# living past the end of the array.
 
 # Disk name. Drives every BuildDrop artifact basename (.elf/.iso/.bin/.cue/.map)
 # and the cue's FILE line, so the build output is release-named as-is.
