@@ -81,6 +81,8 @@ FPS = 25                     # exact 2:1 decimation of the 50 fps source
 STRIPS = 2                   # constant, matching SKYBL.CPK -- see the note above
 AUDIO_RATE = 32000           # matches SKYBL.CPK; the SGL PCM path is mono
 AUDIO_CHANNELS = 1
+AUDIO_BLOCK = 16000          # bytes per audio packet, 0.25s -- SKYBL's block size
+AUDIO_LEAD = 0.5             # seconds of audio handed over before the video needs it
 
 # Where ffmpeg gets installed when it is not on PATH. Checked as a fallback so
 # the tool works straight after a winget install without a shell restart.
@@ -203,6 +205,103 @@ def align():
         f.write(bytes(body))
 
 
+def remux_audio():
+    """Re-lay the audio in SEGA's shape: big blocks, running ahead of the video.
+
+    ffmpeg emits one small audio packet per half video frame -- fifty a second,
+    1280 bytes each -- and puts the first video frame ahead of any of them, so
+    the PCM buffer is never more than a hair in front of what the SCSP is
+    playing. SRL's own SKYBL.CPK hands over 32000 bytes, half a second, before
+    a single video frame and then feeds quarter-second blocks. Ours skipped
+    twice a second and sounded detuned until it did the same; SEGA's file plays
+    clean in this port untouched, so the layout is the difference.
+
+    Nothing about the audio itself changes. The samples are concatenated in
+    presentation order and re-cut, so the PCM is byte for byte what it was.
+    ffmpeg has no option for any of this -- frame_size is rejected by the PCM
+    encoders and max_interleave_delta changes nothing here.
+    """
+    d = open(OUT, "rb").read()
+    header_len = struct.unpack(">I", d[4:8])[0]
+
+    off = 16
+    fdsc = None
+    stab = None
+    while off < header_len:
+        tag = d[off:off + 4]
+        size = struct.unpack(">I", d[off + 4:off + 8])[0]
+        if tag == b"FDSC":
+            fdsc = d[off:off + size]
+        elif tag == b"STAB":
+            base_freq, count = struct.unpack(">II", d[off + 8:off + 16])
+            stab = off + 16
+        off += size
+
+    if fdsc is None or stab is None:
+        raise SystemExit("%s is missing FDSC or STAB" % OUT)
+
+    video = []
+    audio = bytearray()
+
+    for i in range(count):
+        offset, length, info1, info2 = struct.unpack(">IIII", d[stab + i * 16:stab + 16 + i * 16])
+        payload = d[header_len + offset:header_len + offset + length]
+        if info1 == 0xFFFFFFFF:
+            audio += payload
+        else:
+            video.append((info1, info2, payload))
+
+    if not audio:
+        return
+
+    bytes_per_second = AUDIO_RATE * 2 * AUDIO_CHANNELS
+    blocks = [bytes(audio[i:i + AUDIO_BLOCK]) for i in range(0, len(audio), AUDIO_BLOCK)]
+    block_ticks = (AUDIO_BLOCK / float(bytes_per_second)) * base_freq
+    lead_ticks = AUDIO_LEAD * base_freq
+
+    ordered = []
+    next_block = 0
+
+    for info1, info2, payload in video:
+        timestamp = info1 & 0x7FFFFFFF
+        while next_block < len(blocks) and (next_block * block_ticks) - lead_ticks <= timestamp:
+            ordered.append((0xFFFFFFFF, 1, blocks[next_block]))
+            next_block += 1
+        ordered.append((info1, info2, payload))
+
+    while next_block < len(blocks):
+        ordered.append((0xFFFFFFFF, 1, blocks[next_block]))
+        next_block += 1
+
+    body = bytearray()
+    entries = []
+    for info1, info2, payload in ordered:
+        if len(body) & 1:
+            body += b"\x00"
+        entries.append((len(body), len(payload), info1, info2))
+        body += payload
+
+    table = bytearray()
+    for entry in entries:
+        table += struct.pack(">IIII", *entry)
+
+    stab_bytes = b"STAB" + struct.pack(">I", 16 + len(table)) + \
+                 struct.pack(">II", base_freq, len(entries)) + bytes(table)
+
+    new_header_len = 16 + len(fdsc) + len(stab_bytes)
+    head = bytearray(d[:16])
+    struct.pack_into(">I", head, 4, new_header_len)
+
+    with open(OUT, "wb") as f:
+        f.write(bytes(head))
+        f.write(fdsc)
+        f.write(stab_bytes)
+        f.write(bytes(body))
+
+    print("remuxed audio: %d packets of %d bytes, %.2fs primed ahead of video"
+          % (len(blocks), AUDIO_BLOCK, AUDIO_LEAD))
+
+
 def verify():
     """Fail loudly on the two bitstream shapes SEGA's decoder cannot survive."""
     d = open(OUT, "rb").read()
@@ -295,6 +394,7 @@ def encode():
     ])
 
     align()
+    remux_audio()
     verify()
 
     size = os.path.getsize(OUT)
