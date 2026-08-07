@@ -65,8 +65,10 @@ using namespace SRL::Types;
  |             picture is frozen because nothing is driving it.
  |     row 4   green, one pixel per decoded frame, wrapping. Stuck at one means
  |             only the preloaded frame ever arrived.
- |     row 8   blue, twenty pixels per CinepakPlayer::PlaybackStateEnum, so
- |             40 = Timer (playing), 100 = Completed, nothing = Stop.
+ |     row 8   blue, twenty pixels per CinepakPlayer::PlaybackStateEnum:
+ |             nothing = Stop, 20 = Paused, 40 = Started, 60 = HeaderProcessing,
+ |             80 = Timer (the normal playing state), 100 = Completed. A bar
+ |             running the full width is Error, which is -1 widened.
  |     row 12  red, one pixel per unit of the last CPK error code, only if the
  |             player raised one. See the CPK_ERR_ values in sgl_cpk.h.
  | Author: suinevere
