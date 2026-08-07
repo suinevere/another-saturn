@@ -59,6 +59,8 @@ saturn/tests/run_tests_menudraw
 saturn/tests/run_tests_menudraw.exe
 saturn/tests/run_tests_menuart
 saturn/tests/run_tests_menuart.exe
+saturn/tests/run_tests_pagerle
+saturn/tests/run_tests_pagerle.exe
 
 # --- Non-free game data ------------------------------------------------------
 # Another World's original PC DOS data files. Required to run, never committed.
