@@ -53,6 +53,21 @@ void sat_scsp_set_volume(uint8_t channel, uint8_t volume);
 void sat_scsp_stop_all(void);
 
 /*----------------------
+ | sat_scsp_set_master
+ | Description: Sets the SCSP's master volume, which is the last thing every
+ |   sound on the machine passes through -- this backend's four slots, the SGL
+ |   driver's voices, and the PCM the Cinepak player streams. That is what makes
+ |   it the audio half of a fade: one write takes the movie and the engine down
+ |   together, and neither has to know a fade is happening.
+ |
+ |   Read-modify-write, because MVOL shares its word with DAC18B and MEM4MB.
+ | Author: suinevere
+ | Params: vol -- 0 (silent) to 15 (full), clamped
+ | Returns: N/A
+ ----------------------*/
+void sat_scsp_set_master(uint8_t vol);
+
+/*----------------------
  | sat_scsp_flush_samples
  | Description: Forgets every uploaded sample and rewinds the heap. Keys all
  |   four slots off first, which is not optional: a sounding slot reads

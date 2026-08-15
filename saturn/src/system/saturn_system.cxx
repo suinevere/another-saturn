@@ -17,6 +17,7 @@
 #include "sys.h"
 #include "saturn_platform.h"
 #include "saturn_audio.h"
+#include "saturn_fade.h"
 
 /*----------------------
  | SaturnSystem
@@ -54,6 +55,7 @@ void SaturnSystem::init(const char *title) {
 	(void)title; // no window to name
 	memset(&input, 0, sizeof(input));
 	sat_video_init();
+	sat_fade_init();
 }
 
 void SaturnSystem::destroy() {

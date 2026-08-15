@@ -1,8 +1,8 @@
 /*----------------------
  | menu_art.h
  | Description: The menu's artwork, packed by tools/mkmenuart.py, with the title
- |   backdrop and bolts in absolute palette indices and the two strings in
- |   relative shades so they can render in either ramp.
+ |   backdrop in absolute palette indices and the two strings in relative shades
+ |   so they can render in either ramp.
  | Author: suinevere
  | Dependencies: menu_blit.h
  ----------------------*/
@@ -12,34 +12,14 @@
 #include "menu_blit.h"
 
 /*----------------------
- | MENU_ART_BOLT_COUNT / MENU_ART_STROBE_LEVELS
- | Description: How many lightning bolts the title screen chooses between, and
- |   how many brightness steps the selected-row strobe walks.
- | Author: suinevere
- ----------------------*/
-enum {
-	MENU_ART_BOLT_COUNT   = 3,
-	MENU_ART_STROBE_LEVELS = 16
-};
-
-/*----------------------
  | MENU_ART_TITLE_BACKDROP
- | Description: The last frame the opening plays, before its loop fade to black,
- |   as a full 320x200 4bpp page on slots 0-6, 11 and 15 -- the ones the
- |   wordmark and the bolts already own plus the four MENU_ART_TITLE_PALETTE
- |   frees, leaving 7-10 and 12-14 clear for the menu to draw straight over it.
+ | Description: The Mega Drive title card as a full 320x200 4bpp page on slots
+ |   0-6, 11 and 15 -- the ones the wordmark already owns plus the four
+ |   MENU_ART_TITLE_PALETTE frees, leaving 7-10 and 12-14 clear for the menu to
+ |   draw straight over it.
  | Author: suinevere
  ----------------------*/
 extern const uint8_t MENU_ART_TITLE_BACKDROP[32000];
-
-/*----------------------
- | MENU_ART_BOLT
- | Description: The three lightning bolt variants the title screen chooses
- |   between: bolt 1 is bolt 0 mirrored horizontally, bolt 2 is that mirror
- |   cropped to its top 40 rows.
- | Author: suinevere
- ----------------------*/
-extern const MenuArt MENU_ART_BOLT[MENU_ART_BOLT_COUNT];
 
 /*----------------------
  | MENU_ART_START_GAME
@@ -74,13 +54,5 @@ extern const uint8_t MENU_ART_PALETTE[32];
  | Author: suinevere
  ----------------------*/
 extern const uint8_t MENU_ART_TITLE_PALETTE[32];
-
-/*----------------------
- | MENU_ART_STROBE
- | Description: Entries 12, 13 and 14 at sixteen brightness levels, six bytes
- |   per level. Level 0 is 55% of MENU_ART_PALETTE, level 15 is full.
- | Author: suinevere
- ----------------------*/
-extern const uint8_t MENU_ART_STROBE[MENU_ART_STROBE_LEVELS][6];
 
 #endif /* MENU_ART_H */

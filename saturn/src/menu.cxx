@@ -23,6 +23,7 @@
 #include "savedata.h"
 #include "saturn_backup.h"
 #include "saturn_platform.h"
+#include "saturn_fade.h"
 #include "opening.h"
 
 extern "C" {
@@ -64,24 +65,9 @@ enum {
 };
 
 /*----------------------
- | MENU_BOLT_FRAMES / MENU_BOLT_GAP_MIN / MENU_BOLT_GAP_SPAN
- | Description: Lightning timing in frames at 60 Hz: how long one strike is on
- |   screen, and the shortest and the width of the random wait between strikes.
- |   The span stays narrow relative to the gap -- a wide one reads as the effect
- |   stalling on some strikes rather than as weather -- and the gap is long
- |   enough that the card is mostly still, since this screen is sat on.
- | Author: suinevere
- ----------------------*/
-enum {
-	MENU_BOLT_FRAMES   = 3,
-	MENU_BOLT_GAP_MIN  = 72,
-	MENU_BOLT_GAP_SPAN = 108
-};
-
-/*----------------------
  | MENU_TITLE_IDLE_FRAMES
- | Description: How long the title screen sits untouched before the opening
- |   plays again, in frames at 60 Hz.
+ | Description: How long the title screen sits untouched before the attract
+ |   starts the introduction again, in frames at 60 Hz -- fifteen seconds.
  | Author: suinevere
  ----------------------*/
 enum {
@@ -295,11 +281,6 @@ void Menu::init(Engine *e) {
 	_prevPad = 0;
 	_repeatTimer = 0;
 	_devicesProbed = false;
-	_frame = 0;
-	_rng = 0xACE1;
-	_boltTimer = MENU_BOLT_GAP_MIN;
-	_boltFrame = -1;
-	_boltIndex = 0;
 	_idleFrames = 0;
 
 	memset(&_st, 0, sizeof(_st));
@@ -596,165 +577,55 @@ static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
 }
 
 /*----------------------
- | menuNextRandom
- | Description: One step of a 16-bit LFSR, used instead of libc's rand so the
- |   menu adds no dependency for bolt timing.
+ | menuRunAttract
+ | Description: Everything that runs before the title card. The movie is a boot
+ |   event and happens at most once in a session; the engine's own introduction
+ |   is the attract proper and repeats until the player asks for the title card.
+ |
+ |   So this does not return when the introduction ends -- it starts it again.
+ |   The only ways out are a button and a quit, which is what makes the title
+ |   card something the player arrives at rather than something they wait for.
+ |
+ |   Always ends black, including when nothing ran at all: coming back to the
+ |   title from a finished game leaves that game's last frame on screen, and it
+ |   has to go somewhere.
  | Author: suinevere
- | Params: state -- advanced in place
- | Returns: the new state
+ | Params: sys -- presentation and input; engine -- runs the introduction;
+ |   page -- MENU_PAGE_SIZE bytes; replay -- true for the idle attract loop,
+ |   which never shows the movie, false for the once-per-boot path
+ | Returns: how many fields the title card's fade-in should take
  ----------------------*/
-static uint16_t menuNextRandom(uint16_t *state) {
-	uint16_t x = *state;
-	x ^= (uint16_t)(x << 7);
-	x ^= (uint16_t)(x >> 9);
-	x ^= (uint16_t)(x << 8);
-	*state = x;
-	return x;
-}
+static int menuRunAttract(System *sys, Engine *engine, uint8_t *page, bool replay) {
+	if (!replay) {
+		const int movie = openingPlay(sys, page);
 
-/*----------------------
- | menuBoltX
- | Description: Where each bolt is drawn -- bolt 1 hangs off the left edge as
- |   bolt 0 mirrored, and bolt 2 is shorter and sits between them.
- | Author: suinevere
- | Params: index -- 0..MENU_ART_BOLT_COUNT - 1
- | Returns: the left edge in pixels
- ----------------------*/
-static int menuBoltX(int index) {
-	if (index == 0) {
-		return 268;
-	}
-	return (index == 1) ? 6 : 90;
-}
-
-/*----------------------
- | MENU_STROBE_HOLD_FRAMES
- | Description: How many rendered frames each strobe table row holds, so a
- |   full triangle cycle spans (MENU_ART_STROBE_LEVELS * 2 - 2) rows times
- |   this many frames.
- | Author: suinevere
- ----------------------*/
-enum {
-	MENU_STROBE_HOLD_FRAMES = 3
-};
-
-/*----------------------
- | menuStrobeLevel
- | Description: Maps a frame counter to a strobe table row, holding each row
- |   for MENU_STROBE_HOLD_FRAMES frames while walking up and back down so the
- |   pulse has no seam.
- | Author: suinevere
- | Params: frame -- free-running frame counter
- | Returns: a row index, 0..MENU_ART_STROBE_LEVELS - 1
- ----------------------*/
-static int menuStrobeLevel(int frame) {
-	const int span = MENU_ART_STROBE_LEVELS * 2 - 2;
-	int p = (frame / MENU_STROBE_HOLD_FRAMES) % span;
-	if (p < 0) {
-		p += span;
-	}
-	return (p < MENU_ART_STROBE_LEVELS) ? p : span - p;
-}
-
-/*----------------------
- | MENU_BOLT_LIFT
- | Description: How far toward white each frame of a strike pushes the palette.
- |   Decaying rather than cutting out early keeps the last frame of bolt art
- |   from sitting on screen unlit. The peak stops short of blowing the whole
- |   card white: at full lift the wordmark and the menu entries clipped together
- |   and the screen read as a flash rather than as a bolt lighting the scene.
- | Author: suinevere
- ----------------------*/
-static const int MENU_BOLT_LIFT[MENU_BOLT_FRAMES] = { 5, 3, 1 };
-
-/*----------------------
- | menuTitlePalette
- | Description: Builds the title screen's palette for one frame -- artwork
- |   entries from MENU_ART_TITLE_PALETTE, entries 12..14 from the strobe table,
- |   and (while a bolt is on screen) every entry 1..14 pushed toward white,
- |   overriding the strobe for those three frames.
- | Author: suinevere
- | Params: out -- 32 bytes; frame -- frame counter, for the strobe phase;
- |         boltFrame -- 0, 1 or 2 while a bolt is lit, negative otherwise
- | Returns: N/A
- ----------------------*/
-static void menuTitlePalette(uint8_t *out, int frame, int boltFrame) {
-	memcpy(out, MENU_ART_TITLE_PALETTE, 32);
-
-	const uint8_t *row = MENU_ART_STROBE[menuStrobeLevel(frame)];
-	for (int i = 0; i < 3; ++i) {
-		out[(12 + i) * 2]     = row[i * 2];
-		out[(12 + i) * 2 + 1] = row[i * 2 + 1];
-	}
-
-	if (boltFrame < 0 || boltFrame >= MENU_BOLT_FRAMES) {
-		return;
-	}
-
-	const int lift = MENU_BOLT_LIFT[boltFrame];
-	for (int i = 1; i < 15; ++i) {
-		int r = (out[i * 2] & 0x0F) + lift;
-		int g = ((out[i * 2 + 1] & 0xF0) >> 4) + lift;
-		int b = (out[i * 2 + 1] & 0x0F) + lift;
-		if (r > 15) r = 15;
-		if (g > 15) g = 15;
-		if (b > 15) b = 15;
-		out[i * 2]     = (uint8_t)r;
-		out[i * 2 + 1] = (uint8_t)((g << 4) | b);
-	}
-}
-
-/*----------------------
- | menuRenderTitleFrame
- | Description: Draws the title screen, blits the current lightning bolt if
- |   one is lit, and presents.
- | Author: suinevere
- | Params: page -- compositing page; sys -- for the present call; st -- state,
- |   for the cursor position; boltIndex -- which bolt art to blit;
- |   boltFrame -- 0, 1 or 2 while a bolt is lit, negative otherwise
- | Returns: N/A
- ----------------------*/
-static void menuRenderTitleFrame(uint8_t *page, System *sys,
-                                 const MenuState *st, int boltIndex,
-                                 int boltFrame) {
-	menuDrawTitleScreen(page, st);
-	if (boltFrame >= 0) {
-		menuBlit4bpp(page, &MENU_ART_BOLT[boltIndex], menuBoltX(boltIndex), 0);
-	}
-	sys->updateDisplay(page);
-}
-
-void Menu::titleAnimate() {
-	_frame++;
-
-	if (_boltFrame >= 0) {
-		_boltFrame++;
-		if (_boltFrame >= MENU_BOLT_FRAMES) {
-			_boltFrame = -1;
-			_boltTimer = MENU_BOLT_GAP_MIN +
-			             (int)(menuNextRandom(&_rng) % MENU_BOLT_GAP_SPAN);
+		if (movie == OPENING_SKIPPED) {
+			return OPENING_FADE_SKIP_FIELDS;
 		}
-	} else {
-		_boltTimer--;
-		if (_boltTimer <= 0) {
-			_boltIndex = (int)(menuNextRandom(&_rng) % MENU_ART_BOLT_COUNT);
-			_boltFrame = 0;
+
+		if (movie == OPENING_NOT_PLAYED) {
+			sat_fade_ramp(SAT_FADE_DARK, OPENING_FADE_FIELDS);
+			return OPENING_FADE_FIELDS;
 		}
 	}
 
-	uint8_t pal[32];
-	menuTitlePalette(pal, _frame, _boltFrame);
-	_sys->setPalette(pal);
+	while (engine->runIntroAttract()) {
+	}
+
+	// Reached only by a button or a quit, so the fade out of it was the short
+	// one and the fade back in should match.
+	return OPENING_FADE_SKIP_FIELDS;
 }
 
 bool Menu::runTitle() {
 	menuStateEnterTitle(&_st);
 	_statusError = SAT_BUP_OK;
 
-	openingPlay(_sys, _page);
+	const int bootFade = menuRunAttract(_sys, _engine, _page, false);
 
-	titleAnimate();
-	menuRenderTitleFrame(_page, _sys, &_st, _boltIndex, _boltFrame);
+	_sys->setPalette(MENU_ART_TITLE_PALETTE);
+	menuRenderFrame(_page, _sys, &_st, _statusError, false, false, 0, 0);
+	sat_fade_ramp(SAT_FADE_LIT, bootFade);
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
 	MenuScreen lastScreen = _st.screen;
@@ -771,12 +642,15 @@ bool Menu::runTitle() {
 			ensureDevices();
 			menuRescan(&_st);
 		} else if (act == MENU_ACT_START_GAME) {
+			sat_fade_ramp(SAT_FADE_DARK, OPENING_FADE_FIELDS);
 			_engine->startNewGame();
 			return true;
 		} else if (act == MENU_ACT_LOAD_SLOT) {
+			sat_fade_ramp(SAT_FADE_DARK, OPENING_FADE_FIELDS);
 			if (_engine->loadSlot(_st.device, _st.slotCursor)) {
 				return true;
 			}
+			sat_fade_ramp(SAT_FADE_LIT, OPENING_FADE_SKIP_FIELDS);
 			_statusError = _engine->lastSaveError();
 			menuRescan(&_st);
 		}
@@ -790,20 +664,34 @@ bool Menu::runTitle() {
 			_idleFrames++;
 		}
 
+		int fadeIn = 0;
+
 		if (_st.screen == MENU_TITLE) {
+			// The title palette is installed on edges rather than every frame:
+			// the card no longer animates, so the only things that can have
+			// replaced it are another screen and the attract replay.
+			bool installPalette = (lastScreen != MENU_TITLE);
 			if (_idleFrames >= MENU_TITLE_IDLE_FRAMES) {
 				_idleFrames = 0;
-				openingReplay(_sys, _page);
+				fadeIn = menuRunAttract(_sys, _engine, _page, true);
 				menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
+				installPalette = true;
 			}
-			titleAnimate();
-			menuRenderTitleFrame(_page, _sys, &_st, _boltIndex, _boltFrame);
-		} else {
-			if (lastScreen == MENU_TITLE) {
-				_sys->setPalette(MENU_ART_PALETTE);
+			if (installPalette) {
+				_sys->setPalette(MENU_ART_TITLE_PALETTE);
 			}
-			menuRenderFrame(_page, _sys, &_st, _statusError, false, false, 0, 0);
+		} else if (lastScreen == MENU_TITLE) {
+			_sys->setPalette(MENU_ART_PALETTE);
 		}
+
+		menuRenderFrame(_page, _sys, &_st, _statusError, false, false, 0, 0);
+
+		// After the render, not before: the attract left the screen black and
+		// this is the first field the title card is actually on it.
+		if (fadeIn != 0) {
+			sat_fade_ramp(SAT_FADE_LIT, fadeIn);
+		}
+
 		lastScreen = _st.screen;
 	}
 

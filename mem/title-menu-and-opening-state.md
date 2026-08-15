@@ -24,8 +24,10 @@ pushed. Do not "fix" that.
 ## What shipped
 
 **Title menu artwork.** Extracted Mega Drive wordmark, hand-authored chrome
-`START GAME` / `LOAD GAME` strings, random lightning, a strobing selected row, and a
-luminance-remapped freeze behind the pause screens.
+`START GAME` / `LOAD GAME` strings, and a luminance-remapped freeze behind the pause
+screens. The random lightning and the strobing selected row shipped with it but were
+removed later: the card is now static, and selection reads from the base-8/base-12
+ramp split alone.
 
 **Streamed title opening.** 383 frames of the Mega Drive intro decoded from
 `OPENING.BIN` at 25 fps, handing off to the menu.

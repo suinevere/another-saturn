@@ -81,22 +81,12 @@ saturn/cd/data/SDDRVS.DAT
 saturn/cd/data/SDDRVS.TSK
 
 # --- Generated title opening stream ------------------------------------------
-# tools/mkopeningcpk.py builds the CPK the game plays. The BIN is left over from
-# the palette-based player that preceded it and nothing reads it now, but
-# tools/mkopening.py still writes one as a side effect of being imported by
-# tools/mkmenuart.py for its frame loader. Derived data either way.
+# tools/mkopeningcpk.py builds the CPK the game plays, from the capture in
+# tools/assets/avi. Derived data, regenerated on demand.
 saturn/cd/data/OPENING.CPK
 saturn/cd/data/opening.cpk
-saturn/cd/data/OPENING.BIN
-saturn/cd/data/opening.bin
 
 # SRL's SKYBL.CPK, copied in to tell a bad encode apart from a bad player setup.
 # Derived from the SDK sample, restage on demand.
 saturn/cd/data/REFAUD.CPK
 saturn/cd/data/refaud.cpk
-
-# --- Reference captures -------------------------------------------------------
-# The Mega Drive capture tools/mkopeningcpk.py reads. Raw video, 723 MB, and
-# non-free besides: keep it beside the repo, never in it.
-images/*.avi
-images/*.mp4

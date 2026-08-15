@@ -1,17 +1,18 @@
 """
 mkmenuart.py
-Description: Builds saturn/src/menu_art.cxx from the Mega Drive reference
-  captures and the authored chrome strings. Run from the repository root.
-  The generated file is committed; the Saturn build never invokes Python.
+Description: Builds saturn/src/menu_art.cxx from the Mega Drive title capture
+  and the authored chrome strings. Run from the repository root. The generated
+  file is committed; the Saturn build never invokes Python.
 Author: suinevere
 Usage: python tools/mkmenuart.py
 """
 import os
 from PIL import Image
-from opening_frames import LAST_FRAME
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "saturn", "src", "menu_art.cxx")
+TITLE = os.path.join(ROOT, "tools", "assets", "png",
+                     "Another World Title (Europe).png")
 
 # Palette entries 4-6: the wordmark's own colours, straight from the capture.
 LOGO_COLOURS = [(0x00, 0x48, 0x49), (0x25, 0x6C, 0x6E), (0x49, 0x90, 0x93)]
@@ -24,19 +25,28 @@ PALETTE = [
     (12, 0, 10, 11), (13, 5, 13, 14), (14, 11, 15, 15), (15, 15, 15, 15),
 ]
 
-STROBE_ENTRIES = [12, 13, 14]
-STROBE_LEVELS = 16
-STROBE_FLOOR = 0.55
-
-# Slots the backdrop may use. 0, 4-6 and 15 it shares with the wordmark and the
-# bolts; 1-3 and 11 are free on the title screen only -- 1-3 are the pause
-# screen's freeze ramp, so the backdrop's values for them go in a title-only
-# copy of the palette rather than displacing them everywhere.
+# Slots the backdrop may use. 0, 4-6 and 15 it shares with the wordmark; 1-3
+# and 11 are free on the title screen only -- 1-3 are the pause screen's freeze
+# ramp, so the backdrop's values for them go in a title-only copy of the palette
+# rather than displacing them everywhere.
 BACKDROP_FIXED_SLOTS = [0, 4, 5, 6, 15]
 BACKDROP_FREE_SLOTS = [1, 2, 3, 11]
 
-# The capture's credit block lands exactly where the menu entries go. Clearing
-# it here rather than in the player keeps drawing the title a straight memcpy.
+# One NBG0 page, matching MENU_PAGE_* in saturn/src/menu_draw.h.
+PAGE_W, PAGE_H, PAGE_PITCH = 320, 200, 160
+
+# The Mega Drive frame is 320x224 and NBG0 is 320x200, so twelve rows come off
+# each edge. Both are card border here: the wordmark spans rows 53-113 of the
+# capture and lands at 41-101 on the page, well clear of the menu band.
+TITLE_CROP_TOP = 12
+
+# Channel sum at or below which a pixel is the card's black rather than art,
+# and goes to slot 0. Capture noise sits a little above pure black.
+DARK_SUM = 60
+
+# The menu entries are blitted over the backdrop, so the rows they occupy are
+# forced clear rather than trusted to be. Clearing here rather than in the
+# player keeps drawing the title a straight memcpy.
 BACKDROP_CLEAR_ROWS = (131, 165)
 
 
@@ -49,25 +59,6 @@ def quantise(im, colours):
     flat += [0, 0, 0] * (256 - len(colours))
     pal.putpalette(flat)
     return im.convert("RGB").quantize(palette=pal, dither=Image.NONE).convert("RGB")
-
-
-def pack4(im, index_of):
-    """Pack an RGB image to 4bpp, one absolute palette index per pixel."""
-    px = im.load()
-    w, h = im.size
-    pitch = (w + 1) >> 1
-    out = bytearray(pitch * h)
-    for y in range(h):
-        for x in range(w):
-            v = index_of(px[x, y])
-            if v == 0:
-                continue
-            o = y * pitch + (x >> 1)
-            if x & 1:
-                out[o] = (out[o] & 0xF0) | v
-            else:
-                out[o] = (out[o] & 0x0F) | (v << 4)
-    return bytes(out), w, h
 
 
 def pack2(im, shade_of):
@@ -164,22 +155,21 @@ def fit_free_slots(hist, fixed):
 
 
 def build_backdrop():
-    """The opening's last card on the nine slots the title screen can spare.
+    """The Mega Drive title card on the nine slots the title screen can spare.
 
-    The frame comes from the opening encoder's own pipeline rather than a second
-    copy of it, so what the title holds is byte-identical in tone to the last
-    frame the intro played and the handoff is invisible. It also retires a
-    duplicate frame matcher that was scoring on a mean difference and, because
-    these frames are mostly unchanging black, pulling in twenty-two cards that
-    were not the last one at all.
+    A still capture rather than a frame lifted out of the opening video. The
+    card the movie ends on is a fade, so pulling the backdrop from it meant
+    reproducing the encoder's whole decimate-average-lift pipeline here just to
+    land on one frame, and tying the title screen's colour to a stop frame
+    number that the movie's own length could move underneath it.
     """
-    from mkopening import DARK_SUM, load_frames
-    img = load_frames()[LAST_FRAME]
+    img = Image.open(TITLE).convert("RGB").crop(
+        (0, TITLE_CROP_TOP, PAGE_W, TITLE_CROP_TOP + PAGE_H))
 
     px = img.load()
     hist = {}
-    for y in range(200):
-        for x in range(320):
+    for y in range(PAGE_H):
+        for x in range(PAGE_W):
             c = px[x, y]
             if sum(c) > DARK_SUM:
                 hist[c] = hist.get(c, 0) + 1
@@ -195,34 +185,14 @@ def build_backdrop():
         c = px[x, y]
         return lut[c] if sum(c) > DARK_SUM else 0
 
-    pitch = 160
-    buf = bytearray(pitch * 200)
-    for y in range(200):
+    buf = bytearray(PAGE_PITCH * PAGE_H)
+    for y in range(PAGE_H):
         if BACKDROP_CLEAR_ROWS[0] <= y < BACKDROP_CLEAR_ROWS[1]:
             continue
-        row = y * pitch
-        for x in range(0, 320, 2):
+        row = y * PAGE_PITCH
+        for x in range(0, PAGE_W, 2):
             buf[row + (x >> 1)] = ((at(x, y) & 0xF) << 4) | (at(x + 1, y) & 0xF)
     return bytes(buf), dict(zip(BACKDROP_FREE_SLOTS, (narrow8(c) for c in free)))
-
-
-def build_bolts():
-    src = Image.open(os.path.join(ROOT, "images", "genesis lightning 3.png")).convert("RGB")
-    bolt = src.crop((210, 0, 256, 63))
-    variants = [bolt,
-                bolt.transpose(Image.FLIP_LEFT_RIGHT),
-                bolt.transpose(Image.FLIP_LEFT_RIGHT).crop((0, 0, 46, 40))]
-
-    ramp = sorted(set(bolt.get_flattened_data()), key=sum)
-    ramp = [c for c in ramp if c != (0, 0, 0)]
-
-    def bolt_index(c):
-        if c == (0, 0, 0):
-            return 0
-        rank = ramp.index(c)
-        return 15 if rank == len(ramp) - 1 else 4 + min(rank, 2)
-
-    return [pack4(quantise(v, [(0, 0, 0)] + ramp), bolt_index) for v in variants]
 
 
 def build_strings():
@@ -239,26 +209,9 @@ def build_strings():
     return out
 
 
-def build_strobe():
-    rows = []
-    for level in range(STROBE_LEVELS):
-        scale = STROBE_FLOOR + (1.0 - STROBE_FLOOR) * level / (STROBE_LEVELS - 1)
-        row = []
-        for idx in STROBE_ENTRIES:
-            _, r, g, b = PALETTE[idx]
-            r = min(15, int(r * scale + 0.5))
-            g = min(15, int(g * scale + 0.5))
-            b = min(15, int(b * scale + 0.5))
-            row += [r, (g << 4) | b]
-        rows.append(row)
-    return rows
-
-
 def main():
     backdrop, titleRamp = build_backdrop()
-    bolts = build_bolts()
     strings = build_strings()
-    strobe = build_strobe()
 
     with open(OUT, "w") as f:
         f.write("/*----------------------\n")
@@ -270,16 +223,10 @@ def main():
         f.write(" ----------------------*/\n")
         f.write('#include "menu_art.h"\n\n')
 
-        for i, b in enumerate(bolts):
-            emit_array(f, "s_boltBits%d" % i, b[0])
         emit_array(f, "s_startGameBits", strings[0][0])
         emit_array(f, "s_loadGameBits", strings[1][0])
         emit_public_array(f, "MENU_ART_TITLE_BACKDROP", backdrop)
 
-        f.write("const MenuArt MENU_ART_BOLT[MENU_ART_BOLT_COUNT] = {\n")
-        for i, b in enumerate(bolts):
-            f.write("\t{ s_boltBits%d, %d, %d },\n" % (i, b[1], b[2]))
-        f.write("};\n\n")
         f.write("const MenuArt MENU_ART_START_GAME = { s_startGameBits, %d, %d };\n"
                 % (strings[0][1], strings[0][2]))
         f.write("const MenuArt MENU_ART_LOAD_GAME = { s_loadGameBits, %d, %d };\n\n"
@@ -295,11 +242,6 @@ def main():
             if i in titleRamp:
                 r, g, b = titleRamp[i]
             f.write("\t0x%02X, 0x%02X,\n" % (r, (g << 4) | b))
-        f.write("};\n\n")
-
-        f.write("const uint8_t MENU_ART_STROBE[MENU_ART_STROBE_LEVELS][6] = {\n")
-        for row in strobe:
-            f.write("\t{ " + " ".join("0x%02X," % v for v in row) + " },\n")
         f.write("};\n")
 
     print("wrote", OUT)

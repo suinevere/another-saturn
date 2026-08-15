@@ -1,9 +1,9 @@
 """
 mkchromestrings.py
 Description: Builds the two chrome menu strings as PNGs. Letters that appear in
-  START or PASSWORD are cut from images/genesis.png; G, M, E and L appear in
-  neither and are rasterised from solid block silhouettes, hollowed into the
-  same double-line stroke style as the cut letters.
+  START or PASSWORD are cut from the Mega Drive title capture; G, M, E and L
+  appear in neither and are rasterised from solid block silhouettes, hollowed
+  into the same double-line stroke style as the cut letters.
   Run from the repository root. Output may be retouched by hand afterwards.
 Author: suinevere
 Usage: python tools/mkchromestrings.py
@@ -13,6 +13,7 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ART = os.path.join(ROOT, "saturn", "art")
+SRC = os.path.join(ROOT, "tools", "assets", "png", "genesis.png")
 
 DARK, MID, RIM = (0x00, 0x48, 0x49), (0x25, 0x6C, 0x6E), (0x49, 0x90, 0x93)
 BG = (0, 0, 0)
@@ -213,7 +214,7 @@ def build(src, text):
 
 
 def main():
-    src = Image.open(os.path.join(ROOT, "images", "genesis.png")).convert("RGB")
+    src = Image.open(SRC).convert("RGB")
     os.makedirs(ART, exist_ok=True)
     build(src, "START GAME").save(os.path.join(ART, "chrome_start_game.png"))
     build(src, "LOAD GAME").save(os.path.join(ART, "chrome_load_game.png"))

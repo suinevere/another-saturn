@@ -5,13 +5,14 @@ metadata:
   type: project
 ---
 
-> **PARTLY STALE.** Superseded for the opening by [[opening-cinepak-playback]]: the
-> opening is a Cinepak movie now, `OPENING.BIN` is not read by anything, and the navy
-> fringe described below is gone with the code that produced it. What is still live is
-> the title card — `tools/mkmenuart.py` imports this pipeline's `load_frames` and
-> `DARK_SUM` from `tools/mkopening.py`, so the palette reasoning here still governs
-> `menu_art.cxx`. Note that `mkopening.py` cannot currently run: its source
-> `images/genesis-opening.mp4` is gone.
+> **STALE.** Superseded for the opening by [[opening-cinepak-playback]]: the opening is a
+> Cinepak movie now, `OPENING.BIN` is not read by anything, and the navy fringe described
+> below is gone with the code that produced it. The title card no longer runs through
+> this pipeline either — `tools/mkopening.py` and `tools/opening_frames.py` are deleted
+> and `tools/mkmenuart.py` builds the backdrop from a still PNG. What survives of the
+> work below is the slot-fitting inside `mkmenuart.py` itself (`fit_free_slots`, the
+> fixed/free split, `DARK_SUM`), which still governs `menu_art.cxx`; everything about
+> decoding video to get there is gone.
 
 Repo `C:\Users\saggl\CLionProjects\Another-Saturn`, branch `main`, **HEAD `5630d2d`**.
 **Five commits are unpushed** (`dcba45d..5630d2d`); everything before that is on origin.

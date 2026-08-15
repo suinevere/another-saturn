@@ -186,7 +186,9 @@ void sat_scsp_init(void)
     g_active  = 0;
     g_uploads = 0;
 
-    /* Master volume, full. Per-note attenuation is TL. */
+    /* Master volume, full. Per-note attenuation is TL, and saturn_fade.cxx
+       drives this same field for its audio half -- which is safe only because
+       this runs once at boot, before anything has faded. */
     SCSP_REG(SCSP_COMMON + 0x00) =
         (uint16_t)((SCSP_REG(SCSP_COMMON + 0x00) & ~0x000Fu) | 0x000Fu);
 
@@ -246,6 +248,17 @@ void sat_scsp_stop_all(void)
     {
         slotKeyOff(n);
     }
+}
+
+void sat_scsp_set_master(uint8_t vol)
+{
+    if (vol > 0x0F)
+    {
+        vol = 0x0F;
+    }
+
+    SCSP_REG(SCSP_COMMON + 0x00) =
+        (uint16_t)((SCSP_REG(SCSP_COMMON + 0x00) & ~0x000Fu) | (uint16_t)vol);
 }
 
 void sat_scsp_set_volume(uint8_t channel, uint8_t volume)

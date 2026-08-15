@@ -1,14 +1,42 @@
 """
 mkopeningcpk.py
 Description: Builds saturn/cd/data/OPENING.CPK from the Mega Drive capture in
-  images/, as Cinepak video in a Sega FILM container -- the format SRL's
-  CinepakPlayer reads. Run from the repository root. The output is git-ignored
-  and regenerated on demand.
+  tools/assets/avi/, as Cinepak video in a Sega FILM container -- the format
+  SRL's CinepakPlayer reads. Run from the repository root. The output is
+  git-ignored and regenerated on demand.
 
-  The capture runs from cold boot to the first room; only the front matter is
-  wanted. SEGA holds to 5s, Virgin to 10s, Delphine to 15s, the wordmark and its
-  lightning to 30s, and the fade lands on black by 31s. The diary text starts at
-  32.5s and is cut: the engine draws that itself from bank data.
+  The capture runs from cold boot to the first room. SEGA holds to 5s, Virgin
+  to 10s, Delphine to 15s, the wordmark and its lightning to 30s, the fade
+  lands on black by 31s, and the diary text runs 33s to 63s and fades out by
+  63.5s. DURATION takes all of it and stops in the black before the first room,
+  which is the game rather than the opening.
+
+  The diary is the expensive half and it is worth knowing where the margin is.
+  Cinepak spends everything it has on thirty seconds of sharp white text
+  scrolling against black: the stream averages 167 KB/s over the whole movie
+  but peaks at 297 KB/s around t=45s, against roughly 300 KB/s that a 2x drive
+  can read at all. That peak is survivable and the average is what matters,
+  because the player buffers 200 KB in LWRAM ahead of the decoder. Simulating
+  that buffer against this file's real per-second profile, it holds with
+  168 KB still in hand at a 280 KB/s drive and 30 KB at 260 KB/s, and only
+  starves below about 250 KB/s.
+
+  So the headroom is real but not large, and it is all in the diary. If this
+  ever does starve on hardware, the lever with the most room in it is DURATION:
+  pulling it back to 33 ends the movie on the wordmark's fade and drops the
+  stream to 131 KB/s mean, 191 KB/s peak, at the cost of the diary -- which the
+  engine draws itself from bank data a moment later anyway, since opening.cxx
+  hands off to GAME_PART2 as an attract.
+
+  The encoder itself has nothing left to give. -b:v is ignored by ffmpeg's
+  Cinepak encoder outright (byte-identical output at 700k, 900k and 1200k);
+  12.5 fps reaches 214 KB/s but judders the scroll; pre-blurring makes it
+  worse, not better (303 KB/s), because the vector quantiser handles
+  hard-edged blocks better than gradients; thresholding the text to pure black
+  and white saves nothing (212 KB/s), since the cost is the number of blocks
+  that change per frame rather than the colours in them; and temporal
+  denoising barely registers (246 KB/s at its strongest) because the capture
+  is digital and has no noise to remove.
 
   25 fps, not 30. The source is 50 fps PAL, so 25 is an exact 2:1 decimation --
   every kept frame is a real source frame. 30 would need an uneven 5:3 pulldown
@@ -73,10 +101,11 @@ import struct
 import subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "images", "Another World (Europe).avi")
+SRC = os.path.join(ROOT, "tools", "assets", "avi",
+                   "Another World Genesis Opening (Europe).avi")
 OUT = os.path.join(ROOT, "saturn", "cd", "data", "OPENING.CPK")
 
-DURATION = 31.5              # seconds of front matter, up to the fade to black
+DURATION = 64.0              # seconds, ending in the black after the diary
 FPS = 25                     # exact 2:1 decimation of the 50 fps source
 STRIPS = 2                   # constant, matching SKYBL.CPK -- see the note above
 AUDIO_RATE = 32000           # matches SKYBL.CPK; the SGL PCM path is mono

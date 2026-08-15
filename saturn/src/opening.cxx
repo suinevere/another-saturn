@@ -7,8 +7,16 @@
  |   player switches the layer off for the duration and back on at close, so
  |   what is written here is what shows for the single field between the movie
  |   going away and the menu drawing its first title frame.
+ |
+ |   The fades run against sat_movie_step rather than sat_video_sync, because
+ |   the movie owns the screen while it is open: the frame is a VDP1 sprite that
+ |   has to be re-issued every field, and a field the player did not draw is a
+ |   field with nothing on it. sat_movie_step goes on drawing after it starts
+ |   reporting the movie finished, which is what lets the last frame be faded
+ |   out rather than snapped away.
  | Author: suinevere
- | Dependencies: opening.h, menu_draw.h, menu_input.h, sys.h, saturn_movie.h
+ | Dependencies: opening.h, menu_draw.h, menu_input.h, sys.h, saturn_movie.h,
+ |   saturn_fade.h
  | Globals: s_hasPlayed
  ----------------------*/
 #include "opening.h"
@@ -16,6 +24,7 @@
 #include "menu_input.h"
 #include "sys.h"
 #include "saturn_movie.h"
+#include "saturn_fade.h"
 
 extern "C" {
 #include <string.h>
@@ -56,8 +65,9 @@ extern "C" {
 
 /*----------------------
  | s_hasPlayed
- | Description: Whether openingPlay has run. It plays once per boot; the title
- |   screen's attract loop goes through openingReplay instead, which ignores this.
+ | Description: Whether openingPlay has run. The movie is a boot event and shows
+ |   at most once a session -- nothing overrides this, including the title
+ |   screen's attract, which loops the engine's introduction instead.
  | Author: suinevere
  ----------------------*/
 static bool s_hasPlayed = false;
@@ -76,47 +86,75 @@ static bool openingAnyButton(System *sys)
 }
 
 /*----------------------
+ | openingFadeOut
+ | Description: Takes the level to black over a number of fields while the movie
+ |   goes on being drawn, so the picture darkens instead of vanishing.
+ | Author: suinevere
+ | Params: fields -- how long to take
+ | Returns: N/A
+ ----------------------*/
+static void openingFadeOut(int fields)
+{
+	const int start = sat_fade_level();
+
+	for (int i = 1; i <= fields; i++) {
+		sat_fade_set(start - (start * i) / fields);
+		sat_movie_step();
+	}
+}
+
+/*----------------------
  | openingRun
- | Description: The player itself, with no once-per-boot guard, so the boot path
- |   and the attract loop share one body. Returns immediately and without having
- |   changed anything if the movie cannot be opened, which leaves the caller on
- |   the title screen a beat early rather than on a dead display.
+ | Description: The player itself, kept separate from the once-per-boot guard so
+ |   the guard reads as policy rather than as part of playback. Returns
+ |   immediately if the movie cannot be opened, which leaves the caller a beat
+ |   early rather than on a dead display. Finishes black whichever way it ends.
  | Author: suinevere
  | Params: sys -- for presentation and input; page -- MENU_PAGE_SIZE bytes,
  |         blanked so the layer behind the movie is black
- | Returns: N/A
+ | Returns: OPENING_FINISHED, OPENING_SKIPPED or OPENING_NOT_PLAYED
  ----------------------*/
-static void openingRun(System *sys, uint8_t *page)
+static int openingRun(System *sys, uint8_t *page)
 {
+	sat_fade_set(SAT_FADE_DARK);
+
 	memset(page, 0, MENU_PAGE_SIZE);
 	sys->updateDisplay(page);
 
 	if (!sat_movie_open(OPENING_MOVIE)) {
-		return;
+		sat_fade_set(SAT_FADE_LIT);
+		return OPENING_NOT_PLAYED;
 	}
 
+	bool skipped = false;
+	int lit = 0;
+
 	while (sat_movie_step()) {
+		if (lit < OPENING_FADE_FIELDS) {
+			lit++;
+			sat_fade_set((SAT_FADE_LIT * lit) / OPENING_FADE_FIELDS);
+		}
+
 		sys->processEvents();
 
 		if (openingAnyButton(sys)) {
+			skipped = true;
 			break;
 		}
 	}
 
+	openingFadeOut(skipped ? OPENING_FADE_SKIP_FIELDS : OPENING_FADE_FIELDS);
+
 	sat_movie_close();
+
+	return skipped ? OPENING_SKIPPED : OPENING_FINISHED;
 }
 
-void openingPlay(System *sys, uint8_t *page)
+int openingPlay(System *sys, uint8_t *page)
 {
 	if (s_hasPlayed) {
-		return;
+		return OPENING_NOT_PLAYED;
 	}
 	s_hasPlayed = true;
-	openingRun(sys, page);
-}
-
-void openingReplay(System *sys, uint8_t *page)
-{
-	s_hasPlayed = true;
-	openingRun(sys, page);
+	return openingRun(sys, page);
 }

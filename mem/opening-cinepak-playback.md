@@ -16,14 +16,29 @@ it as wholly dead. See the note in it.
 ## What the opening is now
 
 `saturn/cd/data/OPENING.CPK`, built by `tools/mkopeningcpk.py` from
-`images/Another World (Europe).avi` — a raw 320x224 50 fps capture of the Mega Drive boot.
-The first 31.5 seconds is the front matter (SEGA, Virgin, Delphine, wordmark, lightning,
-fade); everything past it is the diary text the engine already draws from bank data.
+`tools/assets/avi/Another World Genesis Opening (Europe).avi` — a raw 320x224 50 fps
+capture of the Mega Drive boot, now tracked in git rather than kept beside the repo.
+It carries the whole opening: front matter (SEGA, Virgin, Delphine, wordmark, lightning,
+fade) to 33s, then the diary text to 63.5s, stopping in the black before the first room.
+
+**The diary is the expensive half and the headroom is real but not large.** 167 KB/s
+mean, 297 KB/s peak around t=45s, against roughly 300 KB/s a 2x drive can read at all.
+The peak alone is not the number that matters — the player buffers 200 KB in LWRAM, and
+simulated against this file's real per-second profile that buffer holds with 168 KB in
+hand at a 280 KB/s drive, 30 KB at 260, and starves only below about 250. Do not trust a
+peak figure here without simulating the buffer; judging on the peak is what led to the
+movie being wrongly cut back to the front matter once already.
+
+The encoder has nothing left to give if it ever does starve — `-b:v` is ignored outright,
+12.5 fps judders, blurring and thresholding make it worse or no better, and the capture
+is digital so denoising does nothing. The lever is `DURATION`: 33 drops it to 131 KB/s
+mean / 191 peak and loses the diary, which the engine draws itself anyway.
 
 It plays through `SRL::CinepakPlayer` behind a three-call C API in
 `saturn/src/system/saturn_movie.{h,cxx}`, so the rule that only the platform layer
-includes `<srl.hpp>` still holds. `saturn/src/opening.cxx` keeps its old
-`openingPlay`/`openingReplay` signatures, so `menu.cxx` never changed.
+includes `<srl.hpp>` still holds. `openingPlay`/`openingReplay` now return an
+`OPENING_*` result instead of void, because the sequence around them needs to know
+whether the player skipped — see [[opening-sequence-and-fades]].
 
 It carries sound, which took two attempts to get right. See the sound section below.
 
@@ -141,14 +156,12 @@ Build and emulator conventions are unchanged: [[srl-build-system]],
 `SaturnRingLib/Compiler/sh2eb-elf/bin/`, not on PATH. ffmpeg is not on PATH either;
 `mkopeningcpk.py` has the winget fallback.
 
-`images/*.avi` and `*.mp4` are ignored — the capture is 723 MB and was staged for commit
-at one point. Keep it beside the repo, not in it.
-
-**`tools/mkopening.py` cannot run**: its source `images/genesis-opening.mp4` is gone. That
-matters because `tools/mkmenuart.py` imports `load_frames` and `DARK_SUM` from it, so the
-title card cannot be regenerated until the source is restored or the tool is repointed at
-the AVI. Nothing is broken today — `menu_art.cxx` is committed — but the next art change
-will hit this.
+The `images/` folder is gone. Source art lives in `tools/assets/` now — `png/` for the
+title card and the wordmark capture, `avi/` for the 723 MB video, all tracked. The
+`tools/mkopening.py` blocker recorded here is resolved rather than worked around: that
+tool and `tools/opening_frames.py` are deleted, and `tools/mkmenuart.py` builds the title
+card from `tools/assets/png/Another World Title (Europe).png` instead of decoding the
+video to reach one frame of it. All three remaining tools run from a clean checkout.
 
 ## Open
 

@@ -23,7 +23,10 @@
 #include "parts.h"
 #include "savedata.h"
 #include "menu.h"
+#include "menu_input.h"
+#include "opening.h"
 #include "page_rle.h"
+#include "saturn_fade.h"
 
 Engine::Engine(System *paramSys, const char *dataDir, const char *saveDir)
 	: sys(paramSys), vm(&mixer, &res, &player, &video, sys), mixer(sys), res(&video, dataDir),
@@ -53,6 +56,7 @@ void Engine::run() {
 
 		bool playing = true;
 		bool pauseLatched = false;
+		int lit = 0;
 		while (playing && !sys->input.quit) {
 
 			vm.checkThreadRequests();
@@ -63,11 +67,20 @@ void Engine::run() {
 				pauseLatched = false;
 			} else if (!pauseLatched) {
 				pauseLatched = true;
+				// A pause inside the opening fade would otherwise put the menu
+				// up half lit and go on brightening underneath it.
+				lit = OPENING_FADE_VM_FRAMES;
+				sat_fade_set(SAT_FADE_LIT);
 				playing = menu.runPause();
 				continue;
 			}
 
 			vm.hostFrame();
+
+			if (lit < OPENING_FADE_VM_FRAMES) {
+				lit++;
+				sat_fade_set((SAT_FADE_LIT * lit) / OPENING_FADE_VM_FRAMES);
+			}
 		}
 	}
 
@@ -235,9 +248,16 @@ bool Engine::loadSlot(uint32_t device, int slot) {
 
 /*----------------------
  | Engine::startNewGame
- | Description: Begins a fresh run at the intro. BYPASS_PROTECTION selects the
- |   intro over the copy-protection wheel, which is unplayable without the
- |   physical code wheel.
+ | Description: Begins a fresh run at the first playable part, past the
+ |   introduction. The introduction is what runIntroAttract has just finished
+ |   playing in front of the title card, so starting a game at GAME_PART2 would
+ |   run it a second time with the player waiting to play.
+ |
+ |   GAME_PART3 is where the introduction hands off of its own accord --
+ |   parts.h annotates GAME_PART4 as the jail, which the game reaches after it,
+ |   so GAME_PART3 is the arrival. Without BYPASS_PROTECTION the run still
+ |   begins at the copy-protection wheel, which is a screen rather than a
+ |   cinematic and is nobody's idea of a repeat.
  | Author: suinevere
  | Dependencies: parts.h
  | Globals: N/A
@@ -246,8 +266,52 @@ bool Engine::loadSlot(uint32_t device, int slot) {
  ----------------------*/
 void Engine::startNewGame() {
 #ifdef BYPASS_PROTECTION
-	vm.initForPart(GAME_PART2);
+	vm.initForPart(GAME_PART3);
 #else
 	vm.initForPart(GAME_PART1);
 #endif
+}
+
+bool Engine::runIntroAttract() {
+	sat_fade_set(SAT_FADE_DARK);
+
+	vm.initForPart(GAME_PART2);
+	res.requestedNextPart = 0;
+
+	bool finished = false;
+	int lit = 0;
+
+	while (!sys->input.quit) {
+		// Tested before checkThreadRequests rather than after, because that
+		// call is the thing that would follow the request into GAME_PART3.
+		if (res.requestedNextPart != 0) {
+			finished = true;
+			break;
+		}
+
+		vm.checkThreadRequests();
+		vm.inp_updatePlayer();
+
+		if (menuInputBits(sys) != 0) {
+			break;
+		}
+
+		vm.hostFrame();
+
+		if (lit < OPENING_FADE_VM_FRAMES) {
+			lit++;
+			sat_fade_set((SAT_FADE_LIT * lit) / OPENING_FADE_VM_FRAMES);
+		}
+	}
+
+	res.requestedNextPart = 0;
+	player.stop();
+	mixer.stopAll();
+
+	// Against the display rather than the VM: nothing is advancing the
+	// cinematic now, so the last frame just has to be held and darkened.
+	sat_fade_ramp(SAT_FADE_DARK,
+	              finished ? OPENING_FADE_FIELDS : OPENING_FADE_SKIP_FIELDS);
+
+	return finished;
 }

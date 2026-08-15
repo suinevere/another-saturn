@@ -141,36 +141,6 @@ static void test_blit2_odd_x_and_clip(void)
     CHECK_EQ(pixelAt(1, 0), 14);
 }
 
-static void test_strobe_endpoints(void)
-{
-    CHECK_EQ(MENU_ART_STROBE[15][0], MENU_ART_PALETTE[12 * 2]);
-    CHECK_EQ(MENU_ART_STROBE[15][1], MENU_ART_PALETTE[12 * 2 + 1]);
-    CHECK_EQ(MENU_ART_STROBE[15][2], MENU_ART_PALETTE[13 * 2]);
-    CHECK_EQ(MENU_ART_STROBE[15][3], MENU_ART_PALETTE[13 * 2 + 1]);
-    CHECK_EQ(MENU_ART_STROBE[15][4], MENU_ART_PALETTE[14 * 2]);
-    CHECK_EQ(MENU_ART_STROBE[15][5], MENU_ART_PALETTE[14 * 2 + 1]);
-
-    CHECK_EQ(MENU_ART_STROBE[0][0], 0x00);
-    CHECK_EQ(MENU_ART_STROBE[0][1], 0x66);
-    CHECK_EQ(MENU_ART_STROBE[0][2], 0x03);
-    CHECK_EQ(MENU_ART_STROBE[0][3], 0x78);
-    CHECK_EQ(MENU_ART_STROBE[0][4], 0x06);
-    CHECK_EQ(MENU_ART_STROBE[0][5], 0x88);
-}
-
-static void test_strobe_is_monotonic(void)
-{
-    for (int e = 0; e < 3; ++e) {
-        for (int l = 1; l < MENU_ART_STROBE_LEVELS; ++l) {
-            const uint8_t *prev = MENU_ART_STROBE[l - 1];
-            const uint8_t *cur  = MENU_ART_STROBE[l];
-            const int pg = (prev[e * 2 + 1] & 0xF0) >> 4;
-            const int cg = (cur[e * 2 + 1] & 0xF0) >> 4;
-            CHECK_EQ(cg >= pg, 1);
-        }
-    }
-}
-
 static void test_palette_has_sixteen_entries(void)
 {
     CHECK_EQ(MENU_ART_PALETTE[0], 0x00);
@@ -179,13 +149,6 @@ static void test_palette_has_sixteen_entries(void)
     CHECK_EQ(MENU_ART_PALETTE[4 * 2 + 1], 0x44);
     CHECK_EQ(MENU_ART_PALETTE[15 * 2], 0x0F);
     CHECK_EQ(MENU_ART_PALETTE[15 * 2 + 1], 0xFF);
-}
-
-static void test_bolt_dimensions(void)
-{
-    CHECK_EQ(MENU_ART_BOLT[0].w, 46);
-    CHECK_EQ(MENU_ART_BOLT[0].h, 63);
-    CHECK_EQ(MENU_ART_BOLT[2].h, 40);
 }
 
 static void test_freeze_remap_bounds_every_nibble(void)
@@ -255,8 +218,8 @@ static void test_freeze_remap_touches_both_nibbles(void)
 
 static void test_backdrop_uses_only_logo_palette(void)
 {
-    /* 0, 4-6 and 15 the backdrop shares with the wordmark and the bolts; 1-3
-       and 11 are its own, free while the title screen is up. 7-10 and 12-14
+    /* 0, 4-6 and 15 the backdrop shares with the wordmark; 1-3 and 11 are
+       its own, free while the title screen is up. 7-10 and 12-14
        must stay clear: the menu draws START GAME and LOAD GAME at those bases
        straight over the backdrop. */
     const uint8_t allowed[] = { 0, 1, 2, 3, 4, 5, 6, 11, 15 };
@@ -344,10 +307,7 @@ int main(void)
     test_blit2_bases_differ_by_four();
     test_blit2_shade0_is_transparent();
     test_blit2_odd_x_and_clip();
-    test_strobe_endpoints();
-    test_strobe_is_monotonic();
     test_palette_has_sixteen_entries();
-    test_bolt_dimensions();
     test_freeze_remap_bounds_every_nibble();
     test_freeze_remap_uniform_palette_is_uniform();
     test_freeze_remap_darkest_becomes_black();

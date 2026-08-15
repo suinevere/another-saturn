@@ -73,6 +73,23 @@ struct Engine {
 	 ----------------------*/
 	int lastSaveError() const { return _lastSaveError; }
 	void startNewGame();
+
+	/*----------------------
+	 | Engine::runIntroAttract
+	 | Description: Plays the game's own introduction as an attract, between the
+	 |   opening movie and the title card. Runs GAME_PART2 the way gameplay
+	 |   would, but stops at the part boundary instead of following it into
+	 |   GAME_PART3, so the engine is never left running a game nobody chose.
+	 |   Leaves the VM holding part 2's resources; whatever the player picks
+	 |   next re-inits over them.
+	 | Author: suinevere
+	 | Dependencies: parts.h, menu_input.h
+	 | Globals: N/A
+	 | Params: N/A
+	 | Returns: true if the intro ran to its own end, false if the player
+	 |   skipped it or asked to quit
+	 ----------------------*/
+	bool runIntroAttract();
 };
 
 #endif
