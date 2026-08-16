@@ -42,12 +42,18 @@ extern "C" {
  |   number of bank re-reads the one-entry name cache did not absorb. What is
  |   left against SAT_PROBE_BANK_OPENED after it is open overhead that is not
  |   the prefetch.
+ |
+ |   SAT_PROBE_DISC_READ is marked per window from sat_cd_read's uncached path,
+ |   which only runs when a file has no whole-file cache behind it. Zero hits
+ |   means every read was served from memory, and whatever SAT_PROBE_BANK_READ
+ |   still costs is the copy itself rather than the disc.
  | Author: suinevere
  ----------------------*/
 enum SatProbeTag {
 	SAT_PROBE_ATTRACT_ENTER = 0,
 	SAT_PROBE_INVALIDATED,
 	SAT_PROBE_CACHE_FILL,
+	SAT_PROBE_DISC_READ,
 	SAT_PROBE_BANK_OPENED,
 	SAT_PROBE_BANK_READ,
 	SAT_PROBE_BANK_UNPACKED,

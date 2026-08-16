@@ -52,12 +52,20 @@ extern "C" {
  |   sector and issues a fresh command per call, so every window waits for the
  |   disc to come back around. The loop runs at 54 KB/s, a sixth of the drive.
  |
- |   So the window is back at 32 KB while that is confirmed -- four times fewer
- |   revolutions waited on. If it holds, the audio trade this was lowered for has
- |   to be paid some other way than by quartering load throughput.
+ |   It held. At 32 KB the introduction's four bank prefetches took 4333 ms, and
+ |   the model closes: about 600 KB in 19 calls is 2280 ms of latency on top of
+ |   2000 ms of transfer. So the per-call cost is fixed and the window is worth
+ |   raising again -- 64 KB halves the calls and should take that to roughly
+ |   3200 ms. The floor is the 2000 ms of transfer, which no window size reaches.
+ |
+ |   [DEBUG-a4f2] This is above the size the audio pump was lowered to protect,
+ |   and is knowingly provisional. It is safe on the seam being measured, where
+ |   the fade holds MVOL at zero and there is nothing to pop, but a gameplay load
+ |   with music under it is a different case and has not been retested. Settle
+ |   the permanent size once the seam is understood.
  | Author: suinevere
  ----------------------*/
-#define CACHE_WINDOW_BYTES (SECTOR_BYTES * 16)
+#define CACHE_WINDOW_BYTES (SECTOR_BYTES * 32)
 
 /*----------------------
  | SatCdFile
@@ -460,6 +468,8 @@ extern "C" int32_t sat_cd_read(SatCdFile *file, int32_t pos, void *dst, int32_t 
 
         memcpy(out + done, bounce + skew, want);
         done += want;
+
+        sat_probe_mark(SAT_PROBE_DISC_READ);
 
         // Loading is the longest the engine ever goes without reaching
         // sat_video_present, which is where audio is normally topped up. A
