@@ -155,6 +155,29 @@ static void onVblank()
  |   the IP jumps to 0x06004000. Addresses are its, verbatim.
  | Author: suinevere
  ----------------------*/
+/*----------------------
+ | SAT_FRT_TIER / SAT_IPRB / SAT_IPRB_FRT_MASK
+ | Description: The free-running timer's interrupt enables, and the priority
+ |   register that gates them.
+ |
+ |   This is the one piece of inherited state SYS_SETUINT cannot reach.
+ |   SRL::Timer::Init routes the FRT overflow to vector 0x66 and installs its
+ |   handler by writing the SH-2 vector table at VBR + 0x66 * 4 directly, not
+ |   through the BIOS's user-hook table -- so a host's handler address survives
+ |   the hooks being cleared. The FRT itself keeps counting across the hand-over
+ |   at priority 15, and SRL::Core::Initialize does not call Timer::Init until
+ |   *after* Sound::Hardware::Initialize has read two files off the disc. Every
+ |   overflow in that window lands on the host's address, which by then holds
+ |   whatever this image put there.
+ |
+ |   Turning the source off is enough: Timer::Init disables, reconfigures,
+ |   reinstalls and re-enables it, so nothing here has to guess at the vector.
+ | Author: suinevere
+ ----------------------*/
+#define SAT_FRT_TIER      (*(volatile uint8_t *)0xFFFFFE10u)
+#define SAT_IPRB          (*(volatile uint16_t *)0xFFFFFE60u)
+#define SAT_IPRB_FRT_MASK 0xF0FFu
+
 #define SAT_SCU_DSP_CTRL (*(volatile uint32_t *)0x25FE0080u)
 #define SAT_DMAC_CHCR0   0xFFFFFF8Cu
 #define SAT_DMAC_STRIDE  0x10u
@@ -169,10 +192,14 @@ static void onVblank()
  |   or another program loaded it over itself and jumped here.
  |
  |   Everything it touches is state that survives such a hand-over: the BIOS work
- |   area below 0x06004000, the second processor, and the DMA and DSP engines,
- |   none of which live in the image a loader overwrites. smpsys.c does all of it
- |   -- the hooks at its lines 156-157, the rest in msh2PeriInit and scuDspInit --
- |   and it is all a no-op on a cold boot, where the IP has just done it.
+ |   area below 0x06004000, the second processor, the free-running timer, and the
+ |   DMA and DSP engines, none of which live in the image a loader overwrites.
+ |   smpsys.c does most of it -- the hooks at its lines 156-157, the rest in
+ |   msh2PeriInit and scuDspInit -- and it is all a no-op on a cold boot, where
+ |   the IP has just done it and the FRT is not raising interrupts yet.
+ |
+ |   The timer goes first because it is the only one of these that can fire on
+ |   its own before the next statement runs.
  |
  |   Sound is left alone deliberately: SRL::Sound::Hardware::Initialize brackets
  |   itself with slSoundOffWait and slSoundOnWait, so the M68K is reset and
@@ -192,6 +219,9 @@ static void sat_boot_sanitize(void)
 {
     uint32_t spin;
     uint32_t i;
+
+    SAT_FRT_TIER = 0u;
+    SAT_IPRB = (uint16_t)(SAT_IPRB & SAT_IPRB_FRT_MASK);
 
     for (spin = 0; spin < SAT_SMPC_TRIES && (SAT_SMPC_SF & 1u) != 0u; spin++)
     {

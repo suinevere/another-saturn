@@ -32,4 +32,23 @@ semaphore first and returns having done nothing when it cannot have it, and SGL 
 through that same SMPC port every frame. Write `COMREG` (`0x2010001f`) directly with the `SF`
 (`0x20100063`) handshake.
 
+## The one the hook clearing does not cover
+
+`SRL::Timer::Init` routes the FRT overflow to vector `0x66` and installs its handler by
+writing the SH-2 vector table at `VBR + 0x66 * 4` **directly**, not through the BIOS's
+user-hook table -- so clearing `SYS_SETUINT` leaves the host's handler address in place. The
+FRT keeps counting across the hand-over at priority 15 (`IPRB = 0x0f00`), and
+`SRL::Core::Initialize` does not reach `Timer::Init` until after
+`Sound::Hardware::Initialize` has read `SDDRVS.TSK` and `BOOTSND.MAP` off the disc. Every
+overflow in that window dispatched to the host's `FrtHandler` address, which by then held
+the middle of an unrelated function in this image.
+
+Caught from a save state: vector `0x66` at `0x06000198` still held `0x0601ff10`, the host's
+`SRL::Timer::FrtHandler`, and the master was stopped in the BIOS address-error stub with
+`0x0601ff14` on the stack. `sat_boot_sanitize` now clears `TIER` (`0xfffffe10`) and the FRT
+priority bits of `IPRB` (`0xfffffe60`) first, before anything else -- it is the only piece
+of this state that can fire on its own between one statement and the next. Turning the
+source off is enough, because `Timer::Init` disables, reconfigures, reinstalls and
+re-enables it.
+
 Related: [[user-runs-the-emulator]], [[suinevere-conventions]].
