@@ -435,29 +435,63 @@ static void menuDrawTitleScreen(uint8_t *page, const MenuState *st) {
 }
 
 /*----------------------
- | MENU_PROBE_MAX_ROWS / MENU_PROBE_TOP_Y / MENU_PROBE_ROW_STEP
- | Description: [DEBUG-a4f2] Where the seam's mark table prints over the title
- |   card. Fourteen rows at eleven scanlines from y=40 ends at 183, inside the
- |   page's 200 lines.
+ | MENU_PROBE_TOP_Y / MENU_PROBE_ROW_STEP
+ | Description: [DEBUG-a4f2] Where the seam's stage totals print over the title
+ |   card. Eight rows at eleven scanlines from y=48 ends at 125, well inside
+ |   the page's 200 lines.
  | Author: suinevere
  ----------------------*/
 enum {
-	MENU_PROBE_MAX_ROWS = 14,
-	MENU_PROBE_TOP_Y    = 40,
+	MENU_PROBE_TOP_Y    = 48,
 	MENU_PROBE_ROW_STEP = 11
 };
 
 /*----------------------
- | menuProbeLine
- | Description: [DEBUG-a4f2] Formats one mark as a padded name and a decimal
- |   millisecond count. Hand rolled rather than sprintf'd to keep the debug
+ | menuProbeNumber
+ | Description: [DEBUG-a4f2] Appends a decimal number to a buffer, right padded
+ |   to a column width. Hand rolled rather than sprintf'd to keep the debug
  |   overlay from dragging formatting code into the link.
  | Author: suinevere
- | Params: out -- at least 20 bytes; name -- mark name; ms -- elapsed
- |         milliseconds
+ | Params: out -- the buffer; n -- where to write; value -- the number; width
+ |         -- the column to pad out to
+ | Returns: the new write position
+ ----------------------*/
+static int menuProbeNumber(char *out, int n, uint32_t value, int width) {
+	char digits[10];
+	int d = 0;
+
+	if (value == 0) {
+		digits[d++] = '0';
+	}
+
+	while (value != 0 && d < 10) {
+		digits[d++] = (char)('0' + (value % 10));
+		value /= 10;
+	}
+
+	const int start = n;
+
+	while (d > 0) {
+		out[n++] = digits[--d];
+	}
+
+	while (n - start < width) {
+		out[n++] = ' ';
+	}
+
+	return n;
+}
+
+/*----------------------
+ | menuProbeLine
+ | Description: [DEBUG-a4f2] Formats one stage as a padded name, a visit count
+ |   and a millisecond total.
+ | Author: suinevere
+ | Params: out -- at least 24 bytes; name -- stage name; hits -- visits; ms --
+ |         milliseconds charged to the stage
  | Returns: N/A
  ----------------------*/
-static void menuProbeLine(char *out, const char *name, uint32_t ms) {
+static void menuProbeLine(char *out, const char *name, uint32_t hits, uint32_t ms) {
 	int n = 0;
 
 	while (*name != '\0' && n < 6) {
@@ -468,44 +502,41 @@ static void menuProbeLine(char *out, const char *name, uint32_t ms) {
 		out[n++] = ' ';
 	}
 
-	char digits[10];
-	int d = 0;
-
-	if (ms == 0) {
-		digits[d++] = '0';
-	}
-
-	while (ms != 0 && d < 10) {
-		digits[d++] = (char)('0' + (ms % 10));
-		ms /= 10;
-	}
-
-	while (d > 0) {
-		out[n++] = digits[--d];
-	}
+	n = menuProbeNumber(out, n, hits, 5);
+	n = menuProbeNumber(out, n, ms, 7);
 
 	out[n] = '\0';
 }
 
 /*----------------------
  | menuDrawProbeOverlay
- | Description: [DEBUG-a4f2] Prints the seam's mark table over the title card,
- |   one line per milestone. Draws nothing until an attract has run, so the
- |   boot title card is untouched.
+ | Description: [DEBUG-a4f2] Prints the seam's per-stage totals over the title
+ |   card, one line per stage plus the whole span. Draws nothing until an
+ |   attract has run, so the boot title card is untouched.
  | Author: suinevere
  | Params: page -- MENU_PAGE_SIZE bytes
  | Returns: N/A
  ----------------------*/
 static void menuDrawProbeOverlay(uint8_t *page) {
 	const uint8_t *font = Video::_font;
-	const int count = sat_probe_count();
 
-	for (int i = 0; i < count && i < MENU_PROBE_MAX_ROWS; i++) {
-		char line[20];
-		menuProbeLine(line, sat_probe_name(i), sat_probe_ms(i));
-		menuDrawText(page, font, 2, MENU_PROBE_TOP_Y + i * MENU_PROBE_ROW_STEP,
+	if (sat_probe_elapsed() == 0) {
+		return;
+	}
+
+	char line[24];
+
+	for (int tag = 0; tag < SAT_PROBE_TAG_COUNT; tag++) {
+		menuProbeLine(line, sat_probe_name(tag), sat_probe_hits(tag),
+		              sat_probe_total(tag));
+		menuDrawText(page, font, 2, MENU_PROBE_TOP_Y + tag * MENU_PROBE_ROW_STEP,
 		             MENU_BASE_SEL, line);
 	}
+
+	menuProbeLine(line, "SEAM", 0, sat_probe_elapsed());
+	menuDrawText(page, font, 2,
+	             MENU_PROBE_TOP_Y + (int)SAT_PROBE_TAG_COUNT * MENU_PROBE_ROW_STEP,
+	             MENU_BASE_SEL, line);
 }
 
 /*----------------------

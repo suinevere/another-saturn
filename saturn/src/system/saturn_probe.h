@@ -4,13 +4,17 @@
  |   between the opening and the introduction cinematic. Delete the whole
  |   module once the seam is understood -- grep DEBUG-a4f2.
  |
- |   Two readouts off one set of marks. Each mark stamps sat_time_ms into a
- |   table the title card prints afterwards, and tints the screen a colour of
- |   its own, so the stage that owns the seam is the colour left on screen
- |   longest. The tint is VDP2 colour offset A, the same register pair
- |   saturn_fade.h drives -- a positive offset lifts the black the seam is
- |   already showing, and the next sat_fade_set overwrites it, so the tint
- |   cleans up after itself.
+ |   Totals rather than a list of marks. The first pass listed every mark and
+ |   ran off the end of its table four seconds into a fifteen second seam,
+ |   because the introduction goes on loading long after setupPart returns. A
+ |   mark now adds the time since the previous one to its stage's running
+ |   total, so the table is a fixed seven rows however many resources the part
+ |   pulls.
+ |
+ |   Two readouts off the same marks. Each mark tints the screen its stage's
+ |   colour -- VDP2 colour offset A, the register pair saturn_fade.h drives, a
+ |   positive offset lifting the black the seam already shows -- and the title
+ |   card prints the totals afterwards.
  |
  |   Off-Saturn the marks compile to nothing, so the shared engine files this
  |   is called from still build for the host tests.
@@ -28,9 +32,10 @@ extern "C" {
 
 /*----------------------
  | SatProbeTag
- | Description: [DEBUG-a4f2] The milestones through the seam, in the order they
- |   are expected to happen. Each carries a screen tint and a short name the
- |   overlay prints.
+ | Description: [DEBUG-a4f2] The stages of the seam. A mark closes the stage it
+ |   names: SAT_PROBE_BANK_OPENED means the time since the previous mark was
+ |   spent inside f.open, and so on. SAT_PROBE_ATTRACT_ENTER opens the
+ |   measurement and closes nothing.
  | Author: suinevere
  ----------------------*/
 enum SatProbeTag {
@@ -40,26 +45,16 @@ enum SatProbeTag {
 	SAT_PROBE_BANK_READ,
 	SAT_PROBE_BANK_UNPACKED,
 	SAT_PROBE_PART_READY,
-	SAT_PROBE_FIRST_FRAME,
+	SAT_PROBE_VM_FRAME,
 	SAT_PROBE_TAG_COUNT
 };
-
-/*----------------------
- | SAT_PROBE_MAX_MARKS
- | Description: [DEBUG-a4f2] How many marks the table holds. GAME_PART2 loads
- |   three resources and each contributes an opened/read/unpacked triple, so
- |   eleven marks is the whole seam -- the rest is headroom for a part that
- |   loads more.
- | Author: suinevere
- ----------------------*/
-#define SAT_PROBE_MAX_MARKS 16
 
 #ifdef __sh__
 
 /*----------------------
  | sat_probe_reset
- | Description: [DEBUG-a4f2] Empties the mark table. Call once at the top of
- |   the seam so a second pass of the attract does not append to the first.
+ | Description: [DEBUG-a4f2] Zeroes every total and starts the clock. Call once
+ |   at the top of the seam.
  | Author: suinevere
  | Params: N/A
  | Returns: N/A
@@ -68,9 +63,10 @@ void sat_probe_reset(void);
 
 /*----------------------
  | sat_probe_mark
- | Description: [DEBUG-a4f2] Stamps the current time against a tag and tints
- |   the screen that tag's colour. Silently drops the stamp once the table is
- |   full, but still tints -- the colour is the primary signal.
+ | Description: [DEBUG-a4f2] Charges the time since the previous mark to a
+ |   stage, counts the visit, and tints the screen that stage's colour. Does
+ |   nothing once sat_probe_stop has run, so the totals describe the seam and
+ |   not the cinematic that follows it.
  | Author: suinevere
  | Params: tag -- one of SatProbeTag
  | Returns: N/A
@@ -78,40 +74,62 @@ void sat_probe_reset(void);
 void sat_probe_mark(int tag);
 
 /*----------------------
- | sat_probe_count
- | Description: [DEBUG-a4f2] How many marks the table holds.
+ | sat_probe_stop
+ | Description: [DEBUG-a4f2] Freezes the totals. Called when the introduction's
+ |   fade-in completes, which is the moment the seam is over from where the
+ |   player is sitting.
  | Author: suinevere
  | Params: N/A
- | Returns: 0 to SAT_PROBE_MAX_MARKS
+ | Returns: N/A
  ----------------------*/
-int sat_probe_count(void);
+void sat_probe_stop(void);
 
 /*----------------------
  | sat_probe_name
- | Description: [DEBUG-a4f2] The short printable name of a mark.
+ | Description: [DEBUG-a4f2] The short printable name of a stage.
  | Author: suinevere
- | Params: index -- 0 to sat_probe_count() - 1
+ | Params: tag -- one of SatProbeTag
  | Returns: a static string, never null
  ----------------------*/
-const char *sat_probe_name(int index);
+const char *sat_probe_name(int tag);
 
 /*----------------------
- | sat_probe_ms
- | Description: [DEBUG-a4f2] Milliseconds from the first mark to this one, so
- |   the table reads as elapsed time rather than as a boot clock.
+ | sat_probe_hits
+ | Description: [DEBUG-a4f2] How many times a stage was entered.
  | Author: suinevere
- | Params: index -- 0 to sat_probe_count() - 1
- | Returns: elapsed milliseconds, 0 for an out of range index
+ | Params: tag -- one of SatProbeTag
+ | Returns: the visit count, 0 for an out of range tag
  ----------------------*/
-uint32_t sat_probe_ms(int index);
+uint32_t sat_probe_hits(int tag);
+
+/*----------------------
+ | sat_probe_total
+ | Description: [DEBUG-a4f2] Milliseconds charged to a stage across the seam.
+ | Author: suinevere
+ | Params: tag -- one of SatProbeTag
+ | Returns: the total, 0 for an out of range tag
+ ----------------------*/
+uint32_t sat_probe_total(int tag);
+
+/*----------------------
+ | sat_probe_elapsed
+ | Description: [DEBUG-a4f2] The whole seam, first mark to last, so the rows
+ |   can be checked against something that does not depend on them summing.
+ | Author: suinevere
+ | Params: N/A
+ | Returns: milliseconds
+ ----------------------*/
+uint32_t sat_probe_elapsed(void);
 
 #else
 
 #define sat_probe_reset()    ((void)0)
 #define sat_probe_mark(tag)  ((void)(tag))
-#define sat_probe_count()    (0)
-#define sat_probe_name(i)    ((void)(i), "")
-#define sat_probe_ms(i)      ((void)(i), (uint32_t)0)
+#define sat_probe_stop()     ((void)0)
+#define sat_probe_name(tag)  ((void)(tag), "")
+#define sat_probe_hits(tag)  ((void)(tag), (uint32_t)0)
+#define sat_probe_total(tag) ((void)(tag), (uint32_t)0)
+#define sat_probe_elapsed()  ((uint32_t)0)
 
 #endif /* __sh__ */
 

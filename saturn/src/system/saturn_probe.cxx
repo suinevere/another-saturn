@@ -1,6 +1,6 @@
 /*----------------------
  | saturn_probe.cxx
- | Description: [DEBUG-a4f2] The mark table and the screen tint behind
+ | Description: [DEBUG-a4f2] The per-stage totals and the screen tint behind
  |   saturn_probe.h. Throwaway -- delete with the rest of DEBUG-a4f2.
  |
  |   The tint goes through slColOffsetA directly rather than through
@@ -11,35 +11,36 @@
  | Author: suinevere
  | Dependencies: saturn_probe.h, saturn_platform.h, SRL (SGL's colour offset
  |   calls)
- | Globals: g_marks, g_count
+ | Globals: g_hits, g_totals, g_last, g_first, g_elapsed, g_stopped
  ----------------------*/
 #include <srl.hpp>
 #include "saturn_probe.h"
 #include "saturn_platform.h"
 
 /*----------------------
- | ProbeMark
- | Description: [DEBUG-a4f2] One stamped milestone.
+ | g_hits / g_totals
+ | Description: [DEBUG-a4f2] Visits and accumulated milliseconds per stage,
+ |   indexed by SatProbeTag.
  | Author: suinevere
  ----------------------*/
-struct ProbeMark
-{
-    int      Tag;
-    uint32_t Ms;
-};
+static uint32_t g_hits[SAT_PROBE_TAG_COUNT];
+static uint32_t g_totals[SAT_PROBE_TAG_COUNT];
 
 /*----------------------
- | g_marks / g_count
- | Description: [DEBUG-a4f2] The table and how much of it is filled.
+ | g_last / g_first / g_elapsed / g_stopped
+ | Description: [DEBUG-a4f2] The previous mark's timestamp, the first one, the
+ |   frozen span between them, and whether marking has finished.
  | Author: suinevere
  ----------------------*/
-static ProbeMark g_marks[SAT_PROBE_MAX_MARKS];
-static int       g_count = 0;
+static uint32_t g_last    = 0;
+static uint32_t g_first   = 0;
+static uint32_t g_elapsed = 0;
+static bool     g_stopped = false;
 
 /*----------------------
  | PROBE_TINTS
- | Description: [DEBUG-a4f2] The colour offset each tag lifts the black seam
- |   to, indexed by SatProbeTag. Red through magenta in milestone order, so the
+ | Description: [DEBUG-a4f2] The colour offset each stage lifts the black seam
+ |   to, indexed by SatProbeTag. Red through magenta in stage order, so the
  |   seam reads as a progression rather than a set of unrelated flashes.
  | Author: suinevere
  ----------------------*/
@@ -56,8 +57,8 @@ static const int16_t PROBE_TINTS[SAT_PROBE_TAG_COUNT][3] = {
 /*----------------------
  | PROBE_NAMES
  | Description: [DEBUG-a4f2] Printable names, indexed by SatProbeTag. Kept to
- |   six characters so a name and a five digit millisecond count fit one line
- |   of the overlay.
+ |   six characters so a name, a visit count and a millisecond total fit one
+ |   line of the overlay.
  | Author: suinevere
  ----------------------*/
 static const char *const PROBE_NAMES[SAT_PROBE_TAG_COUNT] = {
@@ -72,47 +73,71 @@ static const char *const PROBE_NAMES[SAT_PROBE_TAG_COUNT] = {
 
 extern "C" void sat_probe_reset(void)
 {
-    g_count = 0;
+    for (int i = 0; i < SAT_PROBE_TAG_COUNT; i++)
+    {
+        g_hits[i] = 0;
+        g_totals[i] = 0;
+    }
+
+    g_last = sat_time_ms();
+    g_first = g_last;
+    g_elapsed = 0;
+    g_stopped = false;
 }
 
 extern "C" void sat_probe_mark(int tag)
 {
-    if (tag < 0 || tag >= SAT_PROBE_TAG_COUNT)
+    if (g_stopped || tag < 0 || tag >= SAT_PROBE_TAG_COUNT)
     {
         return;
     }
 
-    if (g_count < SAT_PROBE_MAX_MARKS)
-    {
-        g_marks[g_count].Tag = tag;
-        g_marks[g_count].Ms = sat_time_ms();
-        g_count++;
-    }
+    const uint32_t now = sat_time_ms();
+
+    g_hits[tag]++;
+    g_totals[tag] += now - g_last;
+    g_last = now;
+    g_elapsed = now - g_first;
 
     slColOffsetA(PROBE_TINTS[tag][0], PROBE_TINTS[tag][1], PROBE_TINTS[tag][2]);
 }
 
-extern "C" int sat_probe_count(void)
+extern "C" void sat_probe_stop(void)
 {
-    return g_count;
+    g_stopped = true;
 }
 
-extern "C" const char *sat_probe_name(int index)
+extern "C" const char *sat_probe_name(int tag)
 {
-    if (index < 0 || index >= g_count)
+    if (tag < 0 || tag >= SAT_PROBE_TAG_COUNT)
     {
         return "";
     }
 
-    return PROBE_NAMES[g_marks[index].Tag];
+    return PROBE_NAMES[tag];
 }
 
-extern "C" uint32_t sat_probe_ms(int index)
+extern "C" uint32_t sat_probe_hits(int tag)
 {
-    if (index < 0 || index >= g_count)
+    if (tag < 0 || tag >= SAT_PROBE_TAG_COUNT)
     {
         return 0;
     }
 
-    return g_marks[index].Ms - g_marks[0].Ms;
+    return g_hits[tag];
+}
+
+extern "C" uint32_t sat_probe_total(int tag)
+{
+    if (tag < 0 || tag >= SAT_PROBE_TAG_COUNT)
+    {
+        return 0;
+    }
+
+    return g_totals[tag];
+}
+
+extern "C" uint32_t sat_probe_elapsed(void)
+{
+    return g_elapsed;
 }

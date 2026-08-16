@@ -286,7 +286,6 @@ bool Engine::runIntroAttract() {
 	res.requestedNextPart = 0;
 
 	bool finished = false;
-	bool framed = false;
 	int lit = 0;
 
 	while (!sys->input.quit) {
@@ -306,14 +305,15 @@ bool Engine::runIntroAttract() {
 
 		vm.hostFrame();
 
-		if (!framed) {
-			framed = true;
-			sat_probe_mark(SAT_PROBE_FIRST_FRAME);
-		}
+		sat_probe_mark(SAT_PROBE_VM_FRAME);
 
 		if (lit < OPENING_FADE_VM_FRAMES) {
 			lit++;
 			sat_fade_set((SAT_FADE_LIT * lit) / OPENING_FADE_VM_FRAMES);
+
+			if (lit == OPENING_FADE_VM_FRAMES) {
+				sat_probe_stop();
+			}
 		}
 	}
 
