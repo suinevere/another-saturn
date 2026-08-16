@@ -51,6 +51,23 @@ jobs:
           bash tools/assets/data.bat
           ls -la saturn/cd/data
 
+      # Normally a no-op: OPENING.CPK is committed and so is the AVI it comes
+      # from. It only re-encodes when the CPK is absent, because the encode
+      # pushes a 690 MB capture through ffmpeg for an answer already in the tree,
+      # and because mkopeningcpk.py's knobs are tuned against what shipped --
+      # a silent re-encode is how the committed stream drifts from the tested one.
+      - name: Encode the opening movie if it is missing
+        run: |
+          set -e
+          if [ -f saturn/cd/data/OPENING.CPK ]; then
+            echo "OPENING.CPK present -- using the committed encode."
+          else
+            echo "OPENING.CPK missing -- re-encoding from tools/assets/avi."
+            sudo apt-get install -y -qq ffmpeg
+            python3 tools/mkopeningcpk.py
+          fi
+          ls -la saturn/cd/data/OPENING.CPK
+
       - name: Build Saturn disc (release)
         working-directory: saturn
         run: |
@@ -63,9 +80,10 @@ jobs:
         run: |
           set -e
           xorriso -indev "saturn/BuildDrop/${DISC_NAME}.iso" -find / 2>/dev/null | tee /tmp/listing
-          # 0.BIN is the first-read file the Saturn BIOS boots; the rest is what
-          # bank.cxx and resource.cxx open at runtime.
-          for f in 0.BIN MEMLIST.BIN BANK01 BANK0D; do
+          # 0.BIN is the first-read file the Saturn BIOS boots; the banks and
+          # MEMLIST.BIN are what bank.cxx and resource.cxx open at runtime, and
+          # OPENING.CPK is what opening.cxx streams before either of them.
+          for f in 0.BIN MEMLIST.BIN BANK01 BANK0D OPENING.CPK; do
             grep -q "'/$f'" /tmp/listing || { echo "ERROR: /$f missing from the disc"; exit 1; }
           done
           test -s "saturn/BuildDrop/${DISC_NAME}.bin"

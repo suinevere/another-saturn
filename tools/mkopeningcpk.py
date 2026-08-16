@@ -2,8 +2,9 @@
 mkopeningcpk.py
 Description: Builds saturn/cd/data/OPENING.CPK from the Mega Drive capture in
   tools/assets/avi/, as Cinepak video in a Sega FILM container -- the format
-  SRL's CinepakPlayer reads. Run from the repository root. The output is
-  git-ignored and regenerated on demand.
+  SRL's CinepakPlayer reads. Run from the repository root. The capture and the
+  CPK are both committed, and CI re-encodes only when the CPK is missing, so
+  run this by hand after changing any knob below and commit what it writes.
 
   The capture runs from cold boot to the first room. SEGA holds to 5s, Virgin
   to 10s, Delphine to 15s, the wordmark and its lightning to 30s, the fade

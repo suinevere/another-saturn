@@ -17,7 +17,9 @@ it as wholly dead. See the note in it.
 
 `saturn/cd/data/OPENING.CPK`, built by `tools/mkopeningcpk.py` from
 `tools/assets/avi/Another World Genesis Opening (Europe).avi` — a raw 320x224 50 fps
-capture of the Mega Drive boot, now tracked in git rather than kept beside the repo.
+capture of the Mega Drive boot. The CPK is committed; the AVI is not and cannot be,
+at 690 MB against GitHub's 100 MiB per-file push limit, so it lives untracked in the
+working tree and `tools/assets/avi/` is ignored. Re-encode by hand and commit the CPK.
 It carries the whole opening: front matter (SEGA, Virgin, Delphine, wordmark, lightning,
 fade) to 33s, then the diary text to 63.5s, stopping in the black before the first room.
 

@@ -57,6 +57,24 @@ jobs:
           bash tools/scripts/getcompiler.sh 14.2.0
           bash tools/scripts/getiso2raw.sh v0.2.2
 
+      # Normally a no-op: OPENING.CPK is committed and so is the AVI it comes
+      # from. It only re-encodes when the CPK is absent, because the encode
+      # pushes a 690 MB capture through ffmpeg for an answer already in the tree,
+      # and because mkopeningcpk.py's knobs are tuned against what shipped --
+      # a silent re-encode is how the committed stream drifts from the tested one.
+      # The movie is ours, unlike the bank files, so it does ship on this disc.
+      - name: Encode the opening movie if it is missing
+        run: |
+          set -e
+          if [ -f saturn/cd/data/OPENING.CPK ]; then
+            echo "OPENING.CPK present -- using the committed encode."
+          else
+            echo "OPENING.CPK missing -- re-encoding from tools/assets/avi."
+            sudo apt-get install -y -qq ffmpeg
+            python3 tools/mkopeningcpk.py
+          fi
+          ls -la saturn/cd/data/OPENING.CPK
+
       # Deliberately WITHOUT running data.bat: saturn/cd/data must hold only the
       # CD skeleton so the shipped ISO carries no game resources.
       - name: Build engine-only Saturn disc (release)
@@ -81,6 +99,7 @@ jobs:
             echo "ERROR: bank files inside the base ISO"; exit 1
           fi
           grep -q '0.BIN' /tmp/base-listing || { echo "ERROR: 0.BIN missing -- disc would not boot"; exit 1; }
+          grep -q 'OPENING.CPK' /tmp/base-listing || { echo "ERROR: OPENING.CPK missing -- no title opening"; exit 1; }
 
       - name: Stage setup kit
         id: kit
@@ -129,7 +148,7 @@ jobs:
           perl -e 'binmode STDIN; binmode STDOUT; while (read(STDIN,$s,2352)==2352) { print substr($s,16,2048) }' \
             < "$out/${DISC_NAME}.bin" > /tmp/deraw.iso
           xorriso -indev /tmp/deraw.iso -find / 2>/dev/null | tee /tmp/full-listing
-          for f in BANK01 BANK0D MEMLIST.BIN 0.BIN; do
+          for f in BANK01 BANK0D MEMLIST.BIN 0.BIN OPENING.CPK; do
             grep -q "'/$f'" /tmp/full-listing || { echo "ERROR: /$f missing from the built disc"; exit 1; }
           done
           # IP.BIN is the SEGA boot header; without it byte-for-byte the disc

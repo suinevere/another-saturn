@@ -80,13 +80,9 @@ saturn/cd/data/BOOTSND.MAP
 saturn/cd/data/SDDRVS.DAT
 saturn/cd/data/SDDRVS.TSK
 
-# --- Generated title opening stream ------------------------------------------
-# tools/mkopeningcpk.py builds the CPK the game plays, from the capture in
-# tools/assets/avi. Derived data, regenerated on demand.
-saturn/cd/data/OPENING.CPK
-saturn/cd/data/opening.cpk
-
-# SRL's SKYBL.CPK, copied in to tell a bad encode apart from a bad player setup.
-# Derived from the SDK sample, restage on demand.
-saturn/cd/data/REFAUD.CPK
-saturn/cd/data/refaud.cpk
+# --- Title opening stream -----------------------------------------------------
+# OPENING.CPK itself is committed, so it is deliberately not listed here; the
+# build re-encodes only when it is missing. Its source capture cannot join it:
+# GitHub refuses any push carrying a file over 100 MiB and the AVI is 690 MB.
+# Keep it beside the checkout and re-encode from it by hand.
+tools/assets/avi/
