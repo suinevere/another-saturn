@@ -40,7 +40,8 @@ enum MenuAction {
 	MENU_ACT_RETURN_TO_TITLE,
 	MENU_ACT_RETRY,
 	MENU_ACT_SAVE_RETRY,
-	MENU_ACT_RESCAN_SLOTS
+	MENU_ACT_RESCAN_SLOTS,
+	MENU_ACT_TOGGLE_BUTTONS
 };
 
 /*----------------------
@@ -59,7 +60,10 @@ struct MenuInput {
  | Description: All state the menu screens need between calls. returnScreen
  |   is private to menu_state.cxx: it remembers which screen opened the slot
  |   list (MENU_TITLE or MENU_PAUSE) so a cancel out of MENU_SLOTS goes back
- |   to the right place. Callers must not read or write it.
+ |   to the right place. Callers must not read or write it. swapButtons is the
+ |   face button layout, and is the one field the menuStateEnter* functions
+ |   must never reset -- a reset would silently revert the player's choice
+ |   every time a menu opened.
  | Author: suinevere
  ----------------------*/
 struct MenuState {
@@ -71,6 +75,7 @@ struct MenuState {
 	bool cartPresent;
 	bool confirmYes;
 	bool retryRow;
+	bool swapButtons;
 	MenuAction pending;
 	SlotInfo slots[SAVE_NUM_SLOTS];
 

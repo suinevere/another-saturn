@@ -472,7 +472,6 @@ extern "C" uint32_t sat_input_read(void)
         if (port0.IsHeld(SRL::Input::Digital::Button::A)) bits |= SAT_PAD_A;
         if (port0.IsHeld(SRL::Input::Digital::Button::B)) bits |= SAT_PAD_B;
         if (port0.IsHeld(SRL::Input::Digital::Button::C)) bits |= SAT_PAD_C;
-        if (bits & (SAT_PAD_A | SAT_PAD_B | SAT_PAD_C)) bits |= SAT_PAD_ACTION;
         if (port0.IsHeld(SRL::Input::Digital::Button::L)) bits |= SAT_PAD_L;
         if (port0.IsHeld(SRL::Input::Digital::Button::R)) bits |= SAT_PAD_R;
         if (port0.IsHeld(SRL::Input::Digital::Button::START)) bits |= SAT_PAD_PAUSE;
@@ -482,6 +481,42 @@ extern "C" uint32_t sat_input_read(void)
     g_loadLatch = 0;
 
     return bits;
+}
+
+/*----------------------
+ | g_padSwap
+ | Description: The face button layout the pad translation reads each frame.
+ | Author: suinevere
+ ----------------------*/
+static int g_padSwap = 0;
+
+/*----------------------
+ | sat_input_set_swap
+ | Description: Records the face button layout the pad translation reads each
+ |   frame. Normalised to 0 or 1 here so callers may pass any non-zero value.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_padSwap
+ | Params: swap -- non-zero to put jump on A and C and the action on B
+ | Returns: N/A
+ ----------------------*/
+extern "C" void sat_input_set_swap(int swap)
+{
+    g_padSwap = swap ? 1 : 0;
+}
+
+/*----------------------
+ | sat_input_get_swap
+ | Description: Hands back the face button layout last set.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_padSwap
+ | Params: N/A
+ | Returns: 1 when swapped, 0 otherwise
+ ----------------------*/
+extern "C" int sat_input_get_swap(void)
+{
+    return g_padSwap;
 }
 
 extern "C" uint32_t sat_time_ms(void)

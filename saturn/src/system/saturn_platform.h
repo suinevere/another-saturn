@@ -87,21 +87,23 @@ void sat_video_sync(void);
 
 /*----------------------
  | SAT_PAD_*
- | Description: Bits returned by sat_input_read.
+ | Description: Bits returned by sat_input_read. Bit 4 is deliberately vacant:
+ |   it was SAT_PAD_ACTION, which went when the layout made the action a
+ |   derived signal rather than a pad one, and the numbering below it was left
+ |   alone rather than shifted. Not an off-by-one.
  | Author: suinevere
  ----------------------*/
 #define SAT_PAD_UP     (1u << 0)
 #define SAT_PAD_DOWN   (1u << 1)
 #define SAT_PAD_LEFT   (1u << 2)
 #define SAT_PAD_RIGHT  (1u << 3)
-#define SAT_PAD_ACTION (1u << 4)  /* A / B / C -- run and shoot */
 #define SAT_PAD_PAUSE  (1u << 5)  /* Start */
 
 /*----------------------
  | SAT_PAD_A / _B / _C / _L / _R
  | Description: Individual buttons, for menus that must tell confirm from
- |   cancel. SAT_PAD_ACTION stays the union of A, B and C so gameplay input is
- |   unchanged.
+ |   cancel. Gameplay's action and jump are resolved from A, B and C by
+ |   settingsMapFaceButtons according to the player's chosen layout.
  | Author: suinevere
  ----------------------*/
 #define SAT_PAD_A      (1u << 6)
@@ -116,6 +118,18 @@ void sat_video_sync(void);
  | Author: suinevere
  ----------------------*/
 uint32_t sat_input_read(void);
+
+/*----------------------
+ | sat_input_set_swap / sat_input_get_swap
+ | Description: The face button layout, read by the pad translation every
+ |   frame. It lives beside the pad code rather than on the System interface so
+ |   a Saturn-only concern stays out of the portable header the menu holds.
+ | Author: suinevere
+ | Params: swap -- non-zero to put jump on A and C and the action on B
+ | Returns: sat_input_get_swap returns 1 when swapped, 0 otherwise
+ ----------------------*/
+void sat_input_set_swap(int swap);
+int  sat_input_get_swap(void);
 
 /*----------------------
  | sat_loading_tick

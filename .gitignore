@@ -53,6 +53,8 @@ saturn/tests/run_tests_bupstub
 saturn/tests/run_tests_bupstub.exe
 saturn/tests/run_tests_savedata
 saturn/tests/run_tests_savedata.exe
+saturn/tests/run_tests_settings
+saturn/tests/run_tests_settings.exe
 saturn/tests/run_tests_menustate
 saturn/tests/run_tests_menustate.exe
 saturn/tests/run_tests_menudraw

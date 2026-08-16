@@ -37,6 +37,12 @@ g++ $OWN_FLAGS -DAUTO_DETECT_PLATFORM -I../src -I../src/system \
     ../src/savedata.cxx
 ./run_tests_savedata
 
+echo "== settings =="
+g++ $OWN_FLAGS -I../src -I../src/system \
+    -o run_tests_settings test_settings.cxx stub_saturn_backup.cxx \
+    ../src/settings.cxx
+./run_tests_settings
+
 echo "== menu state =="
 g++ $OWN_FLAGS -DAUTO_DETECT_PLATFORM -I../src -I../src/system \
     -o run_tests_menustate test_menu_state.cxx stub_saturn_backup.cxx \

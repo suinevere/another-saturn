@@ -133,10 +133,10 @@ static void test_return_to_menu_asks_for_confirmation(void)
     memset(&st, 0, sizeof(st));
     menuStateEnterPause(&st);
     MenuInput down = press("down");
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         menuStateStep(&st, &down);
     }
-    CHECK_EQ(st.cursor, 3);
+    CHECK_EQ(st.cursor, 4);
     MenuInput confirm = press("confirm");
     CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_NONE);
     CHECK_EQ(st.screen, MENU_CONFIRM);
@@ -149,7 +149,7 @@ static void test_confirm_defaults_to_no(void)
     memset(&st, 0, sizeof(st));
     menuStateEnterPause(&st);
     MenuInput down = press("down");
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         menuStateStep(&st, &down);
     }
     MenuInput confirm = press("confirm");
@@ -164,7 +164,7 @@ static void test_confirm_yes_returns_to_title(void)
     memset(&st, 0, sizeof(st));
     menuStateEnterPause(&st);
     MenuInput down = press("down");
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         menuStateStep(&st, &down);
     }
     MenuInput confirm = press("confirm");
@@ -304,7 +304,7 @@ static void test_confirm_cancel_declines_return_to_title(void)
     memset(&st, 0, sizeof(st));
     menuStateEnterPause(&st);
     MenuInput down = press("down");
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         menuStateStep(&st, &down);
     }
     MenuInput confirm = press("confirm");
@@ -341,6 +341,84 @@ static void test_empty_input_does_nothing(void)
     CHECK_EQ(st.screen, MENU_TITLE);
 }
 
+static void test_pause_cursor_wraps_across_five_rows(void)
+{
+    MenuState st;
+    memset(&st, 0, sizeof(st));
+    menuStateEnterPause(&st);
+
+    MenuInput up = press("up");
+    menuStateStep(&st, &up);
+    CHECK_EQ(st.cursor, 4);
+
+    MenuInput down = press("down");
+    menuStateStep(&st, &down);
+    CHECK_EQ(st.cursor, 0);
+}
+
+static void test_buttons_row_toggles_on_confirm(void)
+{
+    MenuState st;
+    memset(&st, 0, sizeof(st));
+    menuStateEnterPause(&st);
+    st.cursor = 3;
+
+    MenuInput confirm = press("confirm");
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_TOGGLE_BUTTONS);
+    CHECK(st.swapButtons);
+    CHECK_EQ(st.screen, MENU_PAUSE);
+    CHECK_EQ(st.cursor, 3);
+
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_TOGGLE_BUTTONS);
+    CHECK(!st.swapButtons);
+}
+
+static void test_left_and_right_do_not_toggle_the_buttons_row(void)
+{
+    MenuState st;
+    memset(&st, 0, sizeof(st));
+    menuStateEnterPause(&st);
+    st.cursor = 3;
+
+    MenuInput left = press("left");
+    CHECK_EQ(menuStateStep(&st, &left), MENU_ACT_NONE);
+    CHECK(!st.swapButtons);
+    CHECK_EQ(st.cursor, 3);
+
+    MenuInput right = press("right");
+    CHECK_EQ(menuStateStep(&st, &right), MENU_ACT_NONE);
+    CHECK(!st.swapButtons);
+    CHECK_EQ(st.cursor, 3);
+}
+
+static void test_left_and_right_do_nothing_off_the_buttons_row(void)
+{
+    MenuState st;
+    memset(&st, 0, sizeof(st));
+    menuStateEnterPause(&st);
+
+    MenuInput left = press("left");
+    CHECK_EQ(menuStateStep(&st, &left), MENU_ACT_NONE);
+    CHECK(!st.swapButtons);
+    CHECK_EQ(st.cursor, 0);
+}
+
+static void test_entering_a_screen_preserves_the_button_layout(void)
+{
+    MenuState st;
+    memset(&st, 0, sizeof(st));
+    st.swapButtons = true;
+
+    menuStateEnterPause(&st);
+    CHECK(st.swapButtons);
+
+    menuStateEnterTitle(&st);
+    CHECK(st.swapButtons);
+
+    menuStateEnterLoad(&st, MENU_TITLE, false);
+    CHECK(st.swapButtons);
+}
+
 int main(void)
 {
     test_title_starts_on_start_game();
@@ -350,6 +428,11 @@ int main(void)
     test_pause_starts_on_resume();
     test_pause_button_resumes();
     test_pause_cancel_resumes();
+    test_pause_cursor_wraps_across_five_rows();
+    test_buttons_row_toggles_on_confirm();
+    test_left_and_right_do_not_toggle_the_buttons_row();
+    test_left_and_right_do_nothing_off_the_buttons_row();
+    test_entering_a_screen_preserves_the_button_layout();
     test_return_to_menu_asks_for_confirmation();
     test_confirm_defaults_to_no();
     test_confirm_yes_returns_to_title();

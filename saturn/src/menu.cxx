@@ -8,8 +8,8 @@
  |   RAM.
  | Author: suinevere
  | Dependencies: menu.h, engine.h, sys.h, video.h, menu_draw.h, menu_blit.h,
- |   menu_art.h, menu_input.h, savedata.h, saturn_backup.h, saturn_platform.h,
- |   opening.h
+ |   menu_art.h, menu_input.h, savedata.h, settings.h, saturn_backup.h,
+ |   saturn_platform.h, opening.h
  | Globals: s_menuPage
  ----------------------*/
 #include "menu.h"
@@ -21,6 +21,7 @@
 #include "menu_art.h"
 #include "menu_input.h"
 #include "savedata.h"
+#include "settings.h"
 #include "saturn_backup.h"
 #include "saturn_platform.h"
 #include "saturn_fade.h"
@@ -278,6 +279,7 @@ void Menu::init(Engine *e) {
 	_sys = e->sys;
 	_page = s_menuPage;
 	_statusError = SAT_BUP_OK;
+	_settingsError = SAT_BUP_OK;
 	_prevPad = 0;
 	_repeatTimer = 0;
 	_devicesProbed = false;
@@ -289,6 +291,7 @@ void Menu::init(Engine *e) {
 	memset(&_devCart, 0, sizeof(_devCart));
 
 	_st.device = SAT_BUP_INTERNAL;
+	_st.swapButtons = sat_input_get_swap() != 0;
 }
 
 /*----------------------
@@ -431,21 +434,31 @@ static void menuDrawTitleScreen(uint8_t *page, const MenuState *st) {
 /*----------------------
  | menuDrawPauseScreen
  | Description: Paints the pause panel over whatever is already in the page,
- |   which is the frozen frame remapped to monochrome.
+ |   which is the frozen frame remapped to monochrome. The layout row's two
+ |   states are both 16 characters, against the 17 the panel allows at cell
+ |   column 13 -- widen the panel before lengthening either string.
  | Author: suinevere
- | Params: page -- compositing page; st -- state, for the cursor position
+ | Params: page -- compositing page; st -- state, for the cursor position and
+ |   the button layout; settingsError -- non-OK when the layout failed to save
  | Returns: N/A
  ----------------------*/
-static void menuDrawPauseScreen(uint8_t *page, const MenuState *st) {
+static void menuDrawPauseScreen(uint8_t *page, const MenuState *st,
+                                int settingsError) {
 	const uint8_t *font = Video::_font;
 
-	menuDrawFill(page, 80, 48, 168, 96, MENU_COL_BORDER);
-	menuDrawFill(page, 82, 50, 164, 92, MENU_COL_PANEL);
+	menuDrawFill(page, 80, 48, 168, 112, MENU_COL_BORDER);
+	menuDrawFill(page, 82, 50, 164, 108, MENU_COL_PANEL);
 	menuDrawText(page, font, 13, 60, st->cursor == 0 ? MENU_BASE_SEL : MENU_BASE_DIM, "RESUME");
 	menuDrawText(page, font, 13, 76, st->cursor == 1 ? MENU_BASE_SEL : MENU_BASE_DIM, "SAVE GAME");
 	menuDrawText(page, font, 13, 92, st->cursor == 2 ? MENU_BASE_SEL : MENU_BASE_DIM, "LOAD GAME");
-	menuDrawText(page, font, 13, 108, st->cursor == 3 ? MENU_BASE_SEL : MENU_BASE_DIM, "RETURN TO MENU");
+	menuDrawText(page, font, 13, 108, st->cursor == 3 ? MENU_BASE_SEL : MENU_BASE_DIM,
+	             st->swapButtons ? "FIRE B  JUMP A/C" : "FIRE A/C  JUMP B");
+	menuDrawText(page, font, 13, 124, st->cursor == 4 ? MENU_BASE_SEL : MENU_BASE_DIM, "RETURN TO MENU");
 	menuDrawText(page, font, 11, 60 + st->cursor * 16, MENU_BASE_SEL, ">");
+
+	if (settingsError != SAT_BUP_OK) {
+		menuDrawText(page, font, 13, 140, MENU_BASE_DIM, "NOT SAVED");
+	}
 }
 
 /*----------------------
@@ -579,16 +592,19 @@ static void menuDrawConfirmScreen(uint8_t *page, const MenuState *st) {
  |   skipping the recopy does not let text accumulate within a screen.
  | Author: suinevere
  | Params: page -- compositing page; sys -- for the present call; st -- state;
- |   statusError -- last failure to report; overlay -- true to composite over
- |   the frozen frame; refreshBackdrop -- true to re-copy and remap the
- |   backdrop this call, ignored when overlay is false; backdrop -- that frame,
- |   or NULL when not overlaying; freezePal -- the game palette the backdrop
- |   was drawn against, or NULL when not overlaying
+ |   statusError -- last save or load failure to report; settingsError -- last
+ |   failure to write the button layout, kept apart so one is never read as the
+ |   other; overlay -- true to composite over the frozen frame; refreshBackdrop
+ |   -- true to re-copy and remap the backdrop this call, ignored when overlay
+ |   is false; backdrop -- that frame, or NULL when not overlaying; freezePal --
+ |   the game palette the backdrop was drawn against, or NULL when not
+ |   overlaying
  | Returns: N/A
  ----------------------*/
 static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
-                            int statusError, bool overlay, bool refreshBackdrop,
-                            const uint8_t *backdrop, const uint8_t *freezePal) {
+                            int statusError, int settingsError, bool overlay,
+                            bool refreshBackdrop, const uint8_t *backdrop,
+                            const uint8_t *freezePal) {
 	if (overlay && refreshBackdrop) {
 		memcpy(page, backdrop, MENU_PAGE_SIZE);
 		menuFreezeRemap(page, freezePal);
@@ -599,7 +615,7 @@ static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
 		menuDrawTitleScreen(page, st);
 		break;
 	case MENU_PAUSE:
-		menuDrawPauseScreen(page, st);
+		menuDrawPauseScreen(page, st, settingsError);
 		break;
 	case MENU_SLOTS:
 		if (!overlay) {
@@ -669,7 +685,7 @@ bool Menu::runTitle() {
 	const int bootFade = menuRunAttract(_sys, _engine, _page, false);
 
 	_sys->setPalette(MENU_ART_TITLE_PALETTE);
-	menuRenderFrame(_page, _sys, &_st, _statusError, false, false, 0, 0);
+	menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0);
 	sat_fade_ramp(SAT_FADE_LIT, bootFade);
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
@@ -729,7 +745,7 @@ bool Menu::runTitle() {
 			_sys->setPalette(MENU_ART_PALETTE);
 		}
 
-		menuRenderFrame(_page, _sys, &_st, _statusError, false, false, 0, 0);
+		menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0);
 
 		// After the render, not before: the attract left the screen black and
 		// this is the first field the title card is actually on it.
@@ -775,7 +791,7 @@ bool Menu::runDeath() {
 	_sys->setPalette(MENU_ART_PALETTE);
 
 	MenuScreen lastScreen = MENU_NONE;
-	menuRenderFrame(_page, _sys, &_st, _statusError, false, false, 0, 0);
+	menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0);
 	lastScreen = _st.screen;
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
@@ -823,7 +839,7 @@ bool Menu::runDeath() {
 			break;
 		}
 
-		menuRenderFrame(_page, _sys, &_st, _statusError, false, false, 0, 0);
+		menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0);
 		lastScreen = _st.screen;
 	}
 
@@ -844,6 +860,7 @@ bool Menu::runPause() {
 
 	menuStateEnterPause(&_st);
 	_statusError = SAT_BUP_OK;
+	_settingsError = SAT_BUP_OK;
 
 	_engine->player.pause();
 	_engine->mixer.stopAll();
@@ -852,7 +869,8 @@ bool Menu::runPause() {
 	_sys->setPalette(MENU_ART_PALETTE);
 
 	MenuScreen lastScreen = MENU_NONE;
-	menuRenderFrame(_page, _sys, &_st, _statusError, true, true, backdrop, _savedPal);
+	menuRenderFrame(_page, _sys, &_st, _statusError, _settingsError, true, true,
+	                backdrop, _savedPal);
 	lastScreen = _st.screen;
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
@@ -869,6 +887,11 @@ bool Menu::runPause() {
 			_statusError = SAT_BUP_OK;
 			ensureDevices();
 			menuRescan(&_st);
+		} else if (act == MENU_ACT_TOGGLE_BUTTONS) {
+			sat_input_set_swap(_st.swapButtons ? 1 : 0);
+			Settings s;
+			s.swapButtons = _st.swapButtons;
+			_settingsError = settingsStore(&s);
 		} else if (act == MENU_ACT_RESUME) {
 			resume = true;
 			break;
@@ -890,7 +913,8 @@ bool Menu::runPause() {
 		}
 
 		const bool refreshBackdrop = (_st.screen != lastScreen);
-		menuRenderFrame(_page, _sys, &_st, _statusError, true, refreshBackdrop, backdrop, _savedPal);
+		menuRenderFrame(_page, _sys, &_st, _statusError, _settingsError, true,
+		                refreshBackdrop, backdrop, _savedPal);
 		lastScreen = _st.screen;
 	}
 

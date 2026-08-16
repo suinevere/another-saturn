@@ -33,8 +33,12 @@ struct PlayerInput {
 		DIR_DOWN  = 1 << 3
 	};
 
+	// dirMask is the D-pad and nothing else: the menus read it for their four
+	// directions too. jump is an abstract action like button, so a face button
+	// mapped to jump never becomes a menu direction.
 	uint8_t dirMask;
 	bool button;
+	bool jump;
 	bool code;
 	bool pause;
 	bool menuConfirm, menuCancel;

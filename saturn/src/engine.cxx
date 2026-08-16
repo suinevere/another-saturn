@@ -27,6 +27,8 @@
 #include "opening.h"
 #include "page_rle.h"
 #include "saturn_fade.h"
+#include "settings.h"
+#include "saturn_platform.h"
 
 /*----------------------
  | VM_DEATH_PROMPT_HOLD_FRAMES
@@ -163,6 +165,12 @@ void Engine::init() {
 
 #ifdef __sh__
 	sat_bup_init();
+	{
+		Settings s;
+		settingsDefaults(&s);
+		settingsLoad(&s);
+		sat_input_set_swap(s.swapButtons ? 1 : 0);
+	}
 #endif
 
 	video.init();

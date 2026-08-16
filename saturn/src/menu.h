@@ -22,6 +22,8 @@ struct System;
  | Description: Owns the compositing page (never one of Video's, since the
  |   VM's pages must survive a pause untouched), the palette snapshot and the
  |   input edge detector, and turns menu_state's actions into engine calls.
+ |   The settings write keeps its own error slot, so a failed save cannot paint
+ |   NOT SAVED under the button-layout row.
  | Author: suinevere
  ----------------------*/
 struct Menu {
@@ -31,6 +33,7 @@ struct Menu {
 	MenuState _st;
 	uint8_t _savedPal[32];
 	int _statusError;
+	int _settingsError;
 	uint32_t _prevPad;
 	int _repeatTimer;
 	bool _devicesProbed;

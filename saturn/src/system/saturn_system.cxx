@@ -12,10 +12,11 @@
  |   Audio goes the same way, through saturn_audio.h: the engine's software mixer
  |   is pulled from on the main loop and its samples pushed to the SCSP.
  | Author: suinevere
- | Dependencies: sys.h, saturn_platform.h, saturn_audio.h
+ | Dependencies: sys.h, saturn_platform.h, settings.h, saturn_audio.h
  ----------------------*/
 #include "sys.h"
 #include "saturn_platform.h"
+#include "settings.h"
 #include "saturn_audio.h"
 #include "saturn_fade.h"
 
@@ -71,6 +72,16 @@ void SaturnSystem::updateDisplay(const uint8_t *src) {
 	sat_video_present(src);
 }
 
+/*----------------------
+ | processEvents
+ | Description: Translates one pad read into the engine's PlayerInput. dirMask
+ |   carries the four D-pad bits and nothing more -- menu_input.h reads it for
+ |   the menus' four directions, so a face button folded in there would steer
+ |   them. Jump and action land on their own fields instead.
+ | Author: suinevere
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 void SaturnSystem::processEvents() {
 	const uint32_t pad = sat_input_read();
 
@@ -80,7 +91,13 @@ void SaturnSystem::processEvents() {
 	if (pad & SAT_PAD_LEFT)  input.dirMask |= PlayerInput::DIR_LEFT;
 	if (pad & SAT_PAD_RIGHT) input.dirMask |= PlayerInput::DIR_RIGHT;
 
-	input.button = (pad & SAT_PAD_ACTION) != 0;
+	bool jump = false;
+	bool action = false;
+	settingsMapFaceButtons((pad & SAT_PAD_A) != 0, (pad & SAT_PAD_B) != 0,
+	                       (pad & SAT_PAD_C) != 0, sat_input_get_swap() != 0,
+	                       &jump, &action);
+	input.jump   = jump;
+	input.button = action;
 	input.pause  = (pad & SAT_PAD_PAUSE) != 0;
 
 	input.menuConfirm = (pad & (SAT_PAD_A | SAT_PAD_C)) != 0;

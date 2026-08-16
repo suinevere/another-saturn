@@ -665,11 +665,13 @@ void VirtualMachine::inp_updatePlayer() {
 
 	vmVariables[VM_VARIABLE_HERO_POS_UP_DOWN] = ud;
 
-	if (sys->input.dirMask & PlayerInput::DIR_UP) {
+	const bool up = (sys->input.dirMask & PlayerInput::DIR_UP) || sys->input.jump;
+
+	if (up) {
 		vmVariables[VM_VARIABLE_HERO_POS_UP_DOWN] = -1;
 	}
 
-	if (sys->input.dirMask & PlayerInput::DIR_UP) { // inpJump
+	if (up) { // inpJump
 		ud = -1;
 		m |= 8;
 	}

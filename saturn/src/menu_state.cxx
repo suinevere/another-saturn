@@ -63,9 +63,11 @@ static MenuAction stepTitle(MenuState *st, const MenuInput *in)
 
 /*----------------------
  | stepPause
- | Description: Pause menu transitions: 4 items -- resume, save, load, return
- |   to title. Cancel and the pause button both resume immediately, whatever
- |   the cursor position.
+ | Description: Pause menu transitions: 5 items -- resume, save, load, the
+ |   button layout, and return to title. Cancel and the pause button both
+ |   resume immediately, whatever the cursor position. The layout row flips on
+ |   confirm only: left and right auto-repeat, and each repeat would be another
+ |   blocking backup-RAM write.
  | Author: suinevere
  | Params: st -- state to advance; in -- this frame's input
  | Returns: at most one action
@@ -76,11 +78,11 @@ static MenuAction stepPause(MenuState *st, const MenuInput *in)
 		return MENU_ACT_RESUME;
 	}
 	if (in->up) {
-		st->cursor = (st->cursor + 3) % 4;
+		st->cursor = (st->cursor + 4) % 5;
 		return MENU_ACT_NONE;
 	}
 	if (in->down) {
-		st->cursor = (st->cursor + 1) % 4;
+		st->cursor = (st->cursor + 1) % 5;
 		return MENU_ACT_NONE;
 	}
 	if (in->confirm) {
@@ -93,6 +95,10 @@ static MenuAction stepPause(MenuState *st, const MenuInput *in)
 			st->saving = (st->cursor == 1);
 			st->slotCursor = 0;
 			return MENU_ACT_RESCAN_SLOTS;
+		}
+		if (st->cursor == 3) {
+			st->swapButtons = !st->swapButtons;
+			return MENU_ACT_TOGGLE_BUTTONS;
 		}
 		st->screen = MENU_CONFIRM;
 		st->pending = MENU_ACT_RETURN_TO_TITLE;
