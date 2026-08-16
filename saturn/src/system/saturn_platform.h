@@ -24,6 +24,11 @@ extern "C" {
  |   operator new are routed onto SRL's TLSF arena (see saturn_compat.cxx), and
  |   that arena does not exist until SRL::Core::Initialize has run. Anything that
  |   allocates before this call faults.
+ |
+ |   It reasserts the machine state the IP hands over before it does any of that,
+ |   so this program starts the same way whether the BIOS launched it or another
+ |   program loaded it over itself and jumped to 0x06004000 -- see
+ |   sat_boot_sanitize in the .cxx for what survives such a hand-over and why.
  | Author: suinevere
  ----------------------*/
 void sat_boot_init(void);

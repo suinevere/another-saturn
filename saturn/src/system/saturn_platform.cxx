@@ -13,6 +13,7 @@
  | Dependencies: saturn_platform.h, SRL (Core, VDP2, CRAM, Input, Bitmap)
  ----------------------*/
 #include <srl.hpp>
+#include <sega_sys.h>
 #include "saturn_platform.h"
 #include "saturn_audio.h"
 
@@ -117,8 +118,123 @@ static void onVblank()
     g_frames++;
 }
 
+/*----------------------
+ | SAT_SMPC_COMREG / SAT_SMPC_SF / SAT_SMPC_SSHOFF / SAT_SMPC_TRIES
+ | Description: The SMPC's command port, its busy flag, the code that powers the
+ |   slave processor down, and how many polls to give it.
+ |
+ |   Written at the port rather than through slSlaveOffWait, because that reaches
+ |   slRequestCommand, which takes a semaphore before doing anything and returns
+ |   having done nothing when it cannot have it -- and SGL reads the pads through
+ |   that same port every frame, so it routinely cannot.
+ | Author: suinevere
+ ----------------------*/
+#define SAT_SMPC_COMREG (*(volatile uint8_t *)0x2010001Fu)
+#define SAT_SMPC_SF     (*(volatile uint8_t *)0x20100063u)
+#define SAT_SMPC_SSHOFF 0x03u
+#define SAT_SMPC_TRIES  100000u
+
+/*----------------------
+ | SAT_UINT_FIRST / SAT_UINT_LAST
+ | Description: The SCU interrupt vectors whose BIOS hooks are let go of on the
+ |   way in. The hooks live at 0x06000900 + vector * 4, in the BIOS work area
+ |   below 0x06004000 -- which is below this program, so a host that loaded us
+ |   over itself cannot have overwritten them and they still name its handlers.
+ |   slInitSystem lifts the interrupt mask partway through its own run and only
+ |   re-hooks afterwards, so the first vblank inside that window is dispatched
+ |   into whatever this image put at the host's addresses.
+ | Author: suinevere
+ ----------------------*/
+#define SAT_UINT_FIRST 0x40u
+#define SAT_UINT_LAST  0x5fu
+
+/*----------------------
+ | SAT_SCU_DSP_CTRL / SAT_DMAC_CHCR0 / SAT_DMAC_STRIDE / SAT_DMAC_DRCR0 /
+ | SAT_DMAC_DMAOR / SAT_DIVU_CONT
+ | Description: The devices smpsys.c's msh2PeriInit and scuDspInit quiet before
+ |   the IP jumps to 0x06004000. Addresses are its, verbatim.
+ | Author: suinevere
+ ----------------------*/
+#define SAT_SCU_DSP_CTRL (*(volatile uint32_t *)0x25FE0080u)
+#define SAT_DMAC_CHCR0   0xFFFFFF8Cu
+#define SAT_DMAC_STRIDE  0x10u
+#define SAT_DMAC_DRCR0   0xFFFFFE71u
+#define SAT_DMAC_DMAOR   (*(volatile uint32_t *)0xFFFFFFB0u)
+#define SAT_DIVU_CONT    (*(volatile uint32_t *)0xFFFFFFB8u)
+
+/*----------------------
+ | sat_boot_sanitize
+ | Description: Puts the console back into the state the IP hands to a program at
+ |   0x06004000, so this build starts the same way whether the BIOS launched it
+ |   or another program loaded it over itself and jumped here.
+ |
+ |   Everything it touches is state that survives such a hand-over: the BIOS work
+ |   area below 0x06004000, the second processor, and the DMA and DSP engines,
+ |   none of which live in the image a loader overwrites. smpsys.c does all of it
+ |   -- the hooks at its lines 156-157, the rest in msh2PeriInit and scuDspInit --
+ |   and it is all a no-op on a cold boot, where the IP has just done it.
+ |
+ |   Sound is left alone deliberately: SRL::Sound::Hardware::Initialize brackets
+ |   itself with slSoundOffWait and slSoundOnWait, so the M68K is reset and
+ |   restarted whatever state it arrives in, and the IP leaves it running.
+ |
+ |   What this cannot repair is a slave still executing the host's code while the
+ |   host overwrote it -- by the time anything here runs, that has already
+ |   happened. Halting it is a loader's job; halting it again here only bounds the
+ |   damage.
+ | Author: suinevere
+ | Dependencies: sega_sys.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void sat_boot_sanitize(void)
+{
+    uint32_t spin;
+    uint32_t i;
+
+    for (spin = 0; spin < SAT_SMPC_TRIES && (SAT_SMPC_SF & 1u) != 0u; spin++)
+    {
+    }
+
+    if ((SAT_SMPC_SF & 1u) == 0u)
+    {
+        SAT_SMPC_SF = 1u;
+        SAT_SMPC_COMREG = SAT_SMPC_SSHOFF;
+
+        for (spin = 0; spin < SAT_SMPC_TRIES && (SAT_SMPC_SF & 1u) != 0u; spin++)
+        {
+        }
+    }
+
+    SAT_SCU_DSP_CTRL = 0u;
+
+    for (i = 0u; i < 2u; i++)
+    {
+        volatile uint32_t *chcr =
+            (volatile uint32_t *)(SAT_DMAC_CHCR0 + i * SAT_DMAC_STRIDE);
+
+        (void)*chcr;
+        *chcr = 0u;
+        *(volatile uint8_t *)(SAT_DMAC_DRCR0 + i) = 0u;
+    }
+
+    (void)SAT_DMAC_DMAOR;
+    SAT_DMAC_DMAOR = 0u;
+    SAT_DIVU_CONT = 0u;
+
+    for (i = SAT_UINT_FIRST; i <= SAT_UINT_LAST; i++)
+    {
+        SYS_SETUINT(i, 0);
+    }
+
+    SYS_SETSCUIM(0xFFFFFFFFu);
+}
+
 extern "C" void sat_boot_init(void)
 {
+    sat_boot_sanitize();
+
     // Black backdrop: the engine's 200 lines are centred in NTSC's 224, so the
     // 12 lines above and below are backdrop and want to read as letterboxing.
     SRL::Core::Initialize(HighColor(0, 0, 0));
