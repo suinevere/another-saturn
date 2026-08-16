@@ -93,6 +93,20 @@ struct SatCdFile
 #define FILE_CACHE_MAX  (256 * 1024)
 
 /*----------------------
+ | CACHE_MIN_BYTES
+ | Description: The smallest file worth taking the whole-file buffer for.
+ |
+ |   Without this the buffer is claimed by whatever is read first, and at boot
+ |   that is memlist.bin at about 3 KB -- which left 256 KB of High Work RAM
+ |   standing in front of CinepakPlayer::LoadMovie and failed the opening's
+ |   143 KB decode buffer outright. The banks this cache exists for are 7 KB to
+ |   204 KB, and the small ones are one window each on the disc anyway, so
+ |   nothing that matters is given up by skipping them.
+ | Author: suinevere
+ ----------------------*/
+#define CACHE_MIN_BYTES (32 * 1024)
+
+/*----------------------
  | g_bounce
  | Description: The shared staging buffer, allocated once from Low Work RAM on
  |   first use and never released. It lives in LWRAM deliberately: High Work RAM
@@ -294,7 +308,7 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
     // rather than literally one call -- see the loop -- but that is seven seeks
     // for the largest bank instead of one per resource, and every read after it
     // is a memcpy. CACHE_WINDOW_BYTES sets how much is read between audio pumps.
-    if (handle->Size > 0 && handle->Size <= FILE_CACHE_MAX)
+    if (handle->Size >= CACHE_MIN_BYTES && handle->Size <= FILE_CACHE_MAX)
     {
         const int32_t rounded =
             (handle->Size + SECTOR_BYTES - 1) / SECTOR_BYTES * SECTOR_BYTES;
@@ -400,6 +414,28 @@ extern "C" void sat_cd_close(SatCdFile *file)
     // outlives every handle that points at it.
     delete file->File;
     delete file;
+}
+
+extern "C" void sat_cd_cache_release(void)
+{
+    if (g_cacheBusy)
+    {
+        return;
+    }
+
+    if (g_cache != nullptr)
+    {
+        delete g_cache->File;
+        delete g_cache;
+        g_cache = nullptr;
+        g_cacheName[0] = '\0';
+    }
+
+    if (g_storage != nullptr)
+    {
+        SRL::Memory::HighWorkRam::Free(g_storage);
+        g_storage = nullptr;
+    }
 }
 
 extern "C" int32_t sat_cd_size(SatCdFile *file)

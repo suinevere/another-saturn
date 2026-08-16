@@ -71,6 +71,24 @@ int32_t sat_cd_size(SatCdFile *file);
  ----------------------*/
 int32_t sat_cd_read(SatCdFile *file, int32_t pos, void *dst, int32_t size);
 
+/*----------------------
+ | sat_cd_cache_release
+ | Description: Hands the whole-file cache's High Work RAM back, so something
+ |   with a large one-off appetite can have it. That is the Cinepak player,
+ |   whose decode buffer wants 143 KB of the same bank and which cannot share
+ |   with a 256 KB cache standing in front of it.
+ |
+ |   Safe to call at any time and cheap when there is nothing to release. Does
+ |   nothing while a cached file is still open, since that would pull the buffer
+ |   out from under a live handle -- callers with a movie to start have no bank
+ |   open, so this cannot silently fail for them. The buffer comes back on the
+ |   next open big enough to want it.
+ | Author: suinevere
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void sat_cd_cache_release(void);
+
 #ifdef __cplusplus
 }
 #endif
