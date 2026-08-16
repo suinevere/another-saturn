@@ -114,6 +114,12 @@ jobs:
       # --clobber` below can replace an asset in place, so a tag alone is not
       # a reproducible pin; a consumer that records these digests can tell a
       # re-uploaded asset from the one it was built against.
+      # data.bat and CONFIG.ME ride along because the program alone is not
+      # playable: whoever embeds it still has to get the player's own DOS data
+      # files onto the disc, and this is the script that does it. Shipping them
+      # here means a consumer needs no checkout of this repository at all.
+      # CONFIG.ME goes out with its own DATA_DIR untouched -- it points at this
+      # project's CD skeleton, and a consumer must re-aim it at theirs.
       - name: Stage program files
         id: program
         run: |
@@ -122,7 +128,9 @@ jobs:
           mkdir -p "$PROG"
           cp saturn/cd/data/0.bin "$PROG/0.bin"
           cp saturn/cd/data/OPENING.CPK "$PROG/OPENING.CPK"
-          (cd "$PROG" && sha256sum 0.bin OPENING.CPK > SHA256SUMS)
+          cp tools/assets/data.bat "$PROG/data.bat"
+          cp tools/assets/CONFIG.ME "$PROG/CONFIG.ME"
+          (cd "$PROG" && sha256sum 0.bin OPENING.CPK data.bat CONFIG.ME > SHA256SUMS)
           cat "$PROG/SHA256SUMS"
           echo "dir=$PROG" >> "$GITHUB_OUTPUT"
 
@@ -231,8 +239,10 @@ jobs:
               "" \
               "**To embed this game on your own disc:** \`0.bin\` is the program, linked at" \
               "0x06004000, and \`OPENING.CPK\` is the title movie it streams from the volume" \
-              "root. Neither carries game data. Verify against \`SHA256SUMS\` rather than" \
-              "trusting the tag -- release assets can be replaced in place." > /tmp/notes.md
+              "root; \`data.bat\` and \`CONFIG.ME\` install the player's own DOS data files," \
+              "and CONFIG.ME's DATA_DIR must be re-aimed at wherever your disc is authored" \
+              "from. None of the four carries game data. Verify against \`SHA256SUMS\` rather" \
+              "than trusting the tag -- release assets can be replaced in place." > /tmp/notes.md
             gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md
           fi
           gh release upload "$TAG" "${{ steps.package.outputs.zip_path }}" --clobber
@@ -241,4 +251,6 @@ jobs:
           gh release upload "$TAG" \
             "${{ steps.program.outputs.dir }}/0.bin" \
             "${{ steps.program.outputs.dir }}/OPENING.CPK" \
+            "${{ steps.program.outputs.dir }}/data.bat" \
+            "${{ steps.program.outputs.dir }}/CONFIG.ME" \
             "${{ steps.program.outputs.dir }}/SHA256SUMS" --clobber

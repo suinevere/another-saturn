@@ -117,7 +117,9 @@ jobs:
           mkdir -p "$PROG"
           cp saturn/cd/data/0.bin "$PROG/0.bin"
           cp saturn/cd/data/OPENING.CPK "$PROG/OPENING.CPK"
-          (cd "$PROG" && sha256sum 0.bin OPENING.CPK > SHA256SUMS)
+          cp tools/assets/data.bat "$PROG/data.bat"
+          cp tools/assets/CONFIG.ME "$PROG/CONFIG.ME"
+          (cd "$PROG" && sha256sum 0.bin OPENING.CPK data.bat CONFIG.ME > SHA256SUMS)
           # Prove the claim in the comment above rather than asserting it: a
           # bank file reaching this artifact would be exactly the leak the
           # separation exists to prevent.
