@@ -11,7 +11,6 @@
 #include "saturn_cdfile.h"
 #include "saturn_audio.h"
 #include "saturn_platform.h"
-#include "saturn_probe.h"
 
 // SGL's <string.h> has no extern "C" guard of its own, so including it from a
 // .cxx without this wrapper declares memcpy with C++ linkage and the call site
@@ -38,31 +37,22 @@ extern "C" {
  |   pumps. Smaller than the bounce buffer on purpose: this is a time budget, not
  |   a space one.
  |
- |   The PCM ring holds 46 ms. A window has to be read in less than that or the
- |   ring drains while the drive works. 8 KB is about 55 ms on a single-speed
- |   drive and half that at 2x -- marginal on paper, but the drive reads ahead
- |   and the ring is refilled the instant each window lands, so the exposure is
- |   one window, not the whole file.
+ |   **Every call costs about 120 ms whatever its size**, because LoadBytes takes
+ |   a start sector and issues a fresh command, so each one waits for the disc to
+ |   come round. Against the 27 ms a 2x drive needs for 8 KB, that is the window
+ |   size deciding throughput almost on its own. Measured on the introduction's
+ |   seam: 8 KB ran the loop at 54 KB/s and cost 10801 ms, 32 KB cost 4333 ms,
+ |   64 KB costs 4534 ms across five bank prefetches. What is left is close to
+ |   the transfer floor -- about 2400 ms for the 720 KB the introduction reads --
+ |   which no window size reaches.
  |
- |   [DEBUG-a4f2] The claim this carried -- that the extra seeks cost nothing
- |   measurable -- is false, and by a wide margin. Measured on the introduction's
- |   seam: bank01, 209 KB, took 3900 ms through this loop. That is 26 windows at
- |   150 ms each, against the 27 ms a 2x drive needs to transfer 8 KB. The other
- |   120 ms is latency, about one revolution of the disc: LoadBytes takes a start
- |   sector and issues a fresh command per call, so every window waits for the
- |   disc to come back around. The loop runs at 54 KB/s, a sixth of the drive.
- |
- |   It held. At 32 KB the introduction's four bank prefetches took 4333 ms, and
- |   the model closes: about 600 KB in 19 calls is 2280 ms of latency on top of
- |   2000 ms of transfer. So the per-call cost is fixed and the window is worth
- |   raising again -- 64 KB halves the calls and should take that to roughly
- |   3200 ms. The floor is the 2000 ms of transfer, which no window size reaches.
- |
- |   [DEBUG-a4f2] This is above the size the audio pump was lowered to protect,
- |   and is knowingly provisional. It is safe on the seam being measured, where
- |   the fade holds MVOL at zero and there is nothing to pop, but a gameplay load
- |   with music under it is a different case and has not been retested. Settle
- |   the permanent size once the seam is understood.
+ |   This was once 8 KB, sized against a PCM ring that held 46 ms. That ring is
+ |   gone: the SCSP plays from its own memory now and nothing needs refilling per
+ |   frame (saturn_platform.cxx, onVblank). The pump below still matters, but
+ |   only to keep the sequencer's timers running, so an over-long window is a
+ |   hitch in music timing rather than an underrun. 64 KB is about 330 ms of
+ |   stalled sequencer per call, which loads can afford; a single whole-file read
+ |   would be 800 ms on the largest bank, which they cannot.
  | Author: suinevere
  ----------------------*/
 #define CACHE_WINDOW_BYTES (SECTOR_BYTES * 32)
@@ -320,13 +310,9 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
 
         if (data != nullptr)
         {
-            // In sector-aligned windows rather than one call, so the PCM ring
-            // can be topped up between them. The banks are up to 209 KB and a
-            // single-speed drive takes over a second over that, against a ring
-            // holding 186 ms -- one monolithic read here was the gap and the
-            // popping heard during loading. sat_cd_read had always pumped
-            // between its windows; this path replaced it for cached files and
-            // did not inherit that.
+            // In sector-aligned windows rather than one call, so the sequencer
+            // keeps ticking between them -- CACHE_WINDOW_BYTES says what that
+            // costs and why it is the size it is.
             //
             // Straight into data, no bounce buffer: every window starts on a
             // sector boundary and data is allocated sector-rounded, so GFS
@@ -374,7 +360,6 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
                 handle->Data = data;
             }
 
-            sat_probe_mark(SAT_PROBE_CACHE_FILL);
         }
     }
 
@@ -537,12 +522,11 @@ extern "C" int32_t sat_cd_read(SatCdFile *file, int32_t pos, void *dst, int32_t 
         memcpy(out + done, bounce + skew, want);
         done += want;
 
-        sat_probe_mark(SAT_PROBE_DISC_READ);
 
         // Loading is the longest the engine ever goes without reaching
-        // sat_video_present, which is where audio is normally topped up. A
-        // multi-second load with no pump underruns the PCM ring and comes out
-        // as popping, so the ring is fed between windows here too.
+        // sat_video_present, which is where the sequencer is normally clocked.
+        // Without this a multi-second load holds whatever pattern was playing
+        // when it started.
         sat_audio_update();
     }
 

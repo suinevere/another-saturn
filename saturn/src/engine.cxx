@@ -27,7 +27,6 @@
 #include "opening.h"
 #include "page_rle.h"
 #include "saturn_fade.h"
-#include "saturn_probe.h"
 
 Engine::Engine(System *paramSys, const char *dataDir, const char *saveDir)
 	: sys(paramSys), vm(&mixer, &res, &player, &video, sys), mixer(sys), res(&video, dataDir),
@@ -276,13 +275,7 @@ void Engine::startNewGame() {
 bool Engine::runIntroAttract() {
 	sat_fade_set(SAT_FADE_DARK);
 
-	sat_probe_reset();
-	sat_probe_mark(SAT_PROBE_ATTRACT_ENTER);
-
 	vm.initForPart(GAME_PART2);
-
-	sat_probe_mark(SAT_PROBE_PART_READY);
-
 	res.requestedNextPart = 0;
 
 	bool finished = false;
@@ -305,15 +298,9 @@ bool Engine::runIntroAttract() {
 
 		vm.hostFrame();
 
-		sat_probe_mark(SAT_PROBE_VM_FRAME);
-
 		if (lit < OPENING_FADE_VM_FRAMES) {
 			lit++;
 			sat_fade_set((SAT_FADE_LIT * lit) / OPENING_FADE_VM_FRAMES);
-
-			if (lit == OPENING_FADE_VM_FRAMES) {
-				sat_probe_stop();
-			}
 		}
 	}
 

@@ -24,7 +24,6 @@
 #include "util.h"
 #include "parts.h"
 #include "saturn_scsp.h"
-#include "saturn_probe.h"
 
 Resource::Resource(Video *vid, const char *dataDir) 
 	: video(vid), _dataDir(dataDir), currentPartId(0),requestedNextPart(0) {
@@ -303,7 +302,6 @@ void Resource::setupPart(uint16_t partId) {
 	// Mark all resources as located on harddrive.
 	invalidateAll();
 
-	sat_probe_mark(SAT_PROBE_INVALIDATED);
 
 	_memList[paletteIndex].state = MEMENTRY_STATE_LOAD_ME;
 	_memList[codeIndex].state = MEMENTRY_STATE_LOAD_ME;
