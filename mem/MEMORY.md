@@ -14,3 +14,4 @@
 - [Suinevere conventions](suinevere-conventions.md) — banner comment format and the spec→plan→code cadence.
 - [User runs the emulator](user-runs-the-emulator.md) — never build and never launch the emulator; write the code and hand it over.
 - [Mednafen BIOS location](mednafen-bios-location.md) — it reads from ~/.mednafen/firmware, and where to find its real logs.
+- [Introduction load seam](intro-load-seam.md) — the 15s black before the introduction, measured stage by stage and cut to 6.5s; the per-call disc latency, the cache that silently stopped working, and the two fixes that backfired.
