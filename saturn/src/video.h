@@ -67,6 +67,21 @@ struct Video {
 
 
 	uint8_t paletteIdRequested, currentPaletteId;
+
+	/*----------------------
+	 | Video::_holdDisplay
+	 | Description: Stops finished frames reaching the screen while leaving the
+	 |   engine's own page and palette bookkeeping alone, so whatever was last
+	 |   presented stays up.
+	 |
+	 |   For the death transition: the password part takes a second to load and
+	 |   several frames to draw, and none of it is meant to be seen. Fading it
+	 |   out was not enough -- the fade is a colour offset applied to what is on
+	 |   screen, so it depends on when SGL commits the register against when the
+	 |   frame lands. Not presenting at all does not.
+	 | Author: suinevere
+	 ----------------------*/
+	bool _holdDisplay;
 	uint8_t *_pages[4];
 
 	// I am almost sure that:

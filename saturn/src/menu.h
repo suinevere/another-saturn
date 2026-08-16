@@ -78,6 +78,17 @@ struct Menu {
 	 | Params: N/A
 	 | Returns: true to resume play, false to go back to the title card
 	 ----------------------*/
+	/*----------------------
+	 | Menu::runDeath
+	 | Description: The load slots over the frozen last frame, offered in place
+	 |   of the script's continue prompt, with a retry row under them.
+	 | Author: suinevere
+	 | Params: N/A
+	 | Returns: true to carry on playing, false to return to the title card
+	 ----------------------*/
+	bool runDeath();
+
+
 	bool runPause();
 };
 

@@ -72,6 +72,32 @@ struct Engine {
 	 | Returns: a SAT_BUP_* code (saturn_backup.h) or an ENGINE_SAVE_ERR_* code
 	 ----------------------*/
 	int lastSaveError() const { return _lastSaveError; }
+	/*----------------------
+	 | Engine::autosaveCheckpoint
+	 | Description: Writes the run to ENGINE_AUTOSAVE_SLOT. Called as a part
+	 |   begins, which is the only moment the engine holds a state worth
+	 |   restoring -- a save taken when the player dies restores them into their
+	 |   own death.
+	 |
+	 |   Failures are swallowed on purpose. A missing or unformatted backup
+	 |   device is not something to interrupt play over, and the player finds out
+	 |   the ordinary way when the slot list shows nothing.
+	 | Author: suinevere
+	 | Params: N/A
+	 | Returns: N/A
+	 ----------------------*/
+	void autosaveCheckpoint();
+
+	/*----------------------
+	 | Engine::saveAfterResume
+	 | Description: Set by the death menu's "SAVE AND RESUME" and honoured once
+	 |   the retry has carried the script back into play. The save has to wait:
+	 |   taken while the prompt is still up it would store the death, which
+	 |   restores the player straight back into it.
+	 | Author: suinevere
+	 ----------------------*/
+	bool saveAfterResume;
+
 	void startNewGame();
 
 	/*----------------------

@@ -33,6 +33,11 @@ VirtualMachine::VirtualMachine(Mixer *mix, Resource *resParameter, SfxPlayer *pl
 
 void VirtualMachine::init() {
 
+	deathScreen = false;
+	deathPrompt = false;
+	deathRetry = false;
+	deathPromptHold = 0;
+
 	memset(vmVariables, 0, sizeof(vmVariables));
 	vmVariables[0x54] = 0x81;
 	vmVariables[VM_VARIABLE_RANDOM_SEED] = time(0);
@@ -301,6 +306,28 @@ void VirtualMachine::op_killThread() {
 	gotoNextThread = true;
 }
 
+/*----------------------
+ | VM_STRING_CODE_* / VM_STRING_ACCESS_CODE / VM_STRING_DEATH_PROMPT
+ | Description: The script's death screen, in staticres.cxx: the checkpoint code
+ |   words 0x15E to 0x174, the "ACCESS CODE:" header 0x13C, and the "PRESS
+ |   BUTTON OR RETURN TO CONTINUE" prompt 0x13D. All are swallowed, and the
+ |   first two raise deathScreen.
+ |
+ |   The code word has to count as a start signal as well as the header. The
+ |   script draws the word and blits it before it draws the header, so hooking
+ |   the header alone let the code itself through -- it was on screen a second
+ |   before anything the port could react to.
+ |
+ |   The words are only ever the death screen and the password entry screen, and
+ |   the second is unreachable here: sys->input.code is held false by the Saturn
+ |   backend, so nothing asks for it.
+ | Author: suinevere
+ ----------------------*/
+#define VM_STRING_CODE_FIRST   0x15E
+#define VM_STRING_CODE_LAST    0x174
+#define VM_STRING_ACCESS_CODE  0x13C
+#define VM_STRING_DEATH_PROMPT 0x13D
+
 void VirtualMachine::op_drawString() {
 	uint16_t stringId = _scriptPtr.fetchWord();
 	uint16_t x = _scriptPtr.fetchByte();
@@ -308,6 +335,21 @@ void VirtualMachine::op_drawString() {
 	uint16_t color = _scriptPtr.fetchByte();
 
 	debug(DBG_VM, "VirtualMachine::op_drawString(0x%03X, %d, %d, %d)", stringId, x, y, color);
+
+	if (stringId == VM_STRING_ACCESS_CODE ||
+	    (stringId >= VM_STRING_CODE_FIRST && stringId <= VM_STRING_CODE_LAST)) {
+		if (deathPromptHold == 0) {
+			deathScreen = true;
+		}
+		return;
+	}
+
+	if (stringId == VM_STRING_DEATH_PROMPT) {
+		if (deathPromptHold == 0) {
+			deathPrompt = true;
+		}
+		return;
+	}
 
 	video->drawString(color, x, y, stringId);
 }
@@ -586,6 +628,15 @@ void VirtualMachine::executeThread() {
 void VirtualMachine::inp_updatePlayer() {
 
 	sys->processEvents();
+
+	if (deathRetry) {
+		deathRetry = false;
+		sys->input.button = true;
+	}
+
+	if (deathPromptHold > 0) {
+		deathPromptHold--;
+	}
 
 	if (res->currentPartId == 0x3E89) {
 		char c = sys->input.lastChar;

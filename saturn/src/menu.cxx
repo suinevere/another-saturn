@@ -458,6 +458,24 @@ static void menuDrawPauseScreen(uint8_t *page, const MenuState *st) {
  |   to report, or SAT_BUP_OK for none
  | Returns: N/A
  ----------------------*/
+/*----------------------
+ | MENU_DEATH_*
+ | Description: Where the slot list rows sit when the death menu adds its three
+ |   extra ones. Six rows and a status line do not fit the spacing the plain list
+ |   uses, so the slots close up to 14 scanlines and everything below them moves
+ |   down. The panel ends at y=184 and the hint is the last thing in it.
+ | Author: suinevere
+ ----------------------*/
+enum {
+	MENU_DEATH_RESUME_Y = 56,
+	MENU_DEATH_SAVE_Y   = 72,
+	MENU_DEATH_SLOT_TOP = 92,
+	MENU_DEATH_ROW_STEP = 14,
+	MENU_DEATH_TITLE_Y  = 140,
+	MENU_DEATH_STATUS_Y = 156,
+	MENU_DEATH_HINT_Y   = 170
+};
+
 static void menuDrawSlotScreen(uint8_t *page, const MenuState *st,
                                int statusError) {
 	const uint8_t *font = Video::_font;
@@ -469,24 +487,51 @@ static void menuDrawSlotScreen(uint8_t *page, const MenuState *st,
 	             st->saving ? "SAVE GAME" : "LOAD GAME");
 
 	if (st->cartPresent) {
-		menuDrawText(page, font, 12, 48, MENU_BASE_DIM,
+		menuDrawText(page, font, 12, st->retryRow ? 40 : 48, MENU_BASE_DIM,
 		             st->device == SAT_BUP_CART ? "L <  CARTRIDGE  > R"
 		                                        : "L <   INTERNAL  > R");
 	}
 
+	const int slotTop = st->retryRow ? MENU_DEATH_SLOT_TOP : 72;
+	const int slotStep = st->retryRow ? MENU_DEATH_ROW_STEP : 16;
+	int cursorY = slotTop + st->slotCursor * slotStep;
+
+	if (st->retryRow) {
+		menuDrawText(page, font, 7, MENU_DEATH_RESUME_Y,
+		             st->slotCursor == MENU_SLOT_RESUME ? MENU_BASE_SEL : MENU_BASE_DIM,
+		             "RESUME");
+		menuDrawText(page, font, 7, MENU_DEATH_SAVE_Y,
+		             st->slotCursor == MENU_SLOT_SAVE_RESUME ? MENU_BASE_SEL : MENU_BASE_DIM,
+		             "SAVE AND RESUME");
+		menuDrawText(page, font, 7, MENU_DEATH_TITLE_Y,
+		             st->slotCursor == MENU_SLOT_TITLE ? MENU_BASE_SEL : MENU_BASE_DIM,
+		             "RETURN TO TITLE");
+
+		if (st->slotCursor == MENU_SLOT_RESUME) {
+			cursorY = MENU_DEATH_RESUME_Y;
+		} else if (st->slotCursor == MENU_SLOT_SAVE_RESUME) {
+			cursorY = MENU_DEATH_SAVE_Y;
+		} else if (st->slotCursor == MENU_SLOT_TITLE) {
+			cursorY = MENU_DEATH_TITLE_Y;
+		}
+	}
+
 	for (int i = 0; i < SAVE_NUM_SLOTS; ++i) {
 		menuSlotRow(row, (int)sizeof(row), i, &st->slots[i]);
-		menuDrawText(page, font, 7, 72 + i * 16,
+		menuDrawText(page, font, 7, slotTop + i * slotStep,
 		             i == st->slotCursor ? MENU_BASE_SEL : MENU_BASE_DIM, row);
 	}
-	menuDrawText(page, font, 5, 72 + st->slotCursor * 16, MENU_BASE_SEL, ">");
+
+	menuDrawText(page, font, 5, cursorY, MENU_BASE_SEL, ">");
 
 	const char *status = menuStatusText(statusError, st->device);
 	if (status != 0) {
-		menuDrawText(page, font, 5, 136, MENU_BASE_DIM, status);
+		menuDrawText(page, font, 5, st->retryRow ? MENU_DEATH_STATUS_Y : 136,
+		             MENU_BASE_DIM, status);
 	}
 
-	menuDrawText(page, font, 5, 160, MENU_BASE_DIM, "A SELECT   B BACK");
+	menuDrawText(page, font, 5, st->retryRow ? MENU_DEATH_HINT_Y : 160,
+	             MENU_BASE_DIM, "A SELECT   B BACK");
 }
 
 /*----------------------
@@ -696,6 +741,102 @@ bool Menu::runTitle() {
 	}
 
 	return false;
+}
+
+/*----------------------
+ | Menu::runDeath
+ | Description: What the player gets instead of the script's "PRESS BUTTON OR
+ |   RETURN TO CONTINUE": resume, save and resume, the three slots, and a way
+ |   back to the title.
+ |
+ |   Drawn on black rather than over the last frame. The script puts its access
+ |   code screen up before it asks for the password part, so by every moment the
+ |   port can see, the frame behind is already the screen this menu replaces --
+ |   there is no earlier signal to snapshot a gameplay frame from.
+ |
+ |   The music is stopped rather than paused. Whichever way this ends the run
+ |   either restarts or is over, and nothing resumes the tune that was playing
+ |   when the player died.
+ | Author: suinevere
+ | Dependencies: menu_state.h, engine.h
+ | Params: N/A
+ | Returns: true to carry on playing -- a retry or a successful load -- false to
+ |   return to the title card
+ ----------------------*/
+bool Menu::runDeath() {
+	ensureDevices();
+	menuStateEnterLoad(&_st, MENU_TITLE, true);
+	menuRescan(&_st);
+	_statusError = SAT_BUP_OK;
+
+	_engine->player.stop();
+	_engine->mixer.stopAll();
+
+	_sys->setPalette(MENU_ART_PALETTE);
+
+	MenuScreen lastScreen = MENU_NONE;
+	menuRenderFrame(_page, _sys, &_st, _statusError, false, false, 0, 0);
+	lastScreen = _st.screen;
+	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
+
+	// After the first frame is up, not before it: brightening while the
+	// password screen is still the thing on display is a flash of exactly what
+	// this menu exists to hide.
+	sat_fade_ramp(SAT_FADE_LIT, OPENING_FADE_SKIP_FIELDS);
+
+	bool resume = false;
+	bool paletteOwnedByLoad = false;
+
+	while (!_sys->input.quit) {
+		MenuInput in;
+		menuPollEdges(_sys, &_prevPad, &_repeatTimer, &in);
+
+		const MenuAction act = menuStateStep(&_st, &in);
+
+		if (act == MENU_ACT_RESCAN_SLOTS) {
+			_statusError = SAT_BUP_OK;
+			ensureDevices();
+			menuRescan(&_st);
+		} else if (act == MENU_ACT_RETRY) {
+			_engine->vm.deathRetry = true;
+			resume = true;
+			break;
+		} else if (act == MENU_ACT_RETURN_TO_TITLE) {
+			resume = false;
+			break;
+		} else if (act == MENU_ACT_SAVE_RETRY) {
+			_engine->vm.deathRetry = true;
+			_engine->saveAfterResume = true;
+			resume = true;
+			break;
+		} else if (act == MENU_ACT_LOAD_SLOT) {
+			if (_engine->loadSlot(_st.device, _st.slotCursor)) {
+				resume = true;
+				paletteOwnedByLoad = true;
+				break;
+			}
+			_statusError = _engine->lastSaveError();
+			menuRescan(&_st);
+		}
+
+		if (_st.screen == MENU_TITLE) {
+			break;
+		}
+
+		menuRenderFrame(_page, _sys, &_st, _statusError, false, false, 0, 0);
+		lastScreen = _st.screen;
+	}
+
+	// Out to black rather than straight back to the game: the page still holds
+	// the password screen, and presenting it lit is the flash this menu exists to
+	// prevent. Engine::run fades the first real frame back in.
+	sat_fade_ramp(SAT_FADE_DARK, OPENING_FADE_SKIP_FIELDS);
+
+	if (!paletteOwnedByLoad) {
+		_engine->video.changePal(_engine->video.currentPaletteId);
+	}
+
+	return resume;
 }
 
 bool Menu::runPause() {

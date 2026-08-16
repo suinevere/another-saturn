@@ -37,20 +37,25 @@ extern "C" {
  |   pumps. Smaller than the bounce buffer on purpose: this is a time budget, not
  |   a space one.
  |
- |   The PCM ring holds 46 ms. A window has to be read in less than that or the
- |   ring drains while the drive works. 8 KB is about 55 ms on a single-speed
- |   drive and half that at 2x -- marginal on paper, but the drive reads ahead
- |   and the ring is refilled the instant each window lands, so the exposure is
- |   one window, not the whole file.
+ |   **Every call costs about 120 ms whatever its size**, because LoadBytes takes
+ |   a start sector and issues a fresh command, so each one waits for the disc to
+ |   come round. Against the 27 ms a 2x drive needs for 8 KB, that is the window
+ |   size deciding throughput almost on its own. Measured on the introduction's
+ |   seam: 8 KB ran the loop at 54 KB/s and cost 10801 ms, 32 KB cost 4333 ms,
+ |   64 KB costs 4534 ms across five bank prefetches. What is left is close to
+ |   the transfer floor -- about 2400 ms for the 720 KB the introduction reads --
+ |   which no window size reaches.
  |
- |   32 KB, which is what this used, is over 200 ms on a single-speed drive: four
- |   times the ring. That survived testing only because emulated drives are fast;
- |   it would very likely pop on real hardware. The extra seeks cost nothing
- |   measurable -- 26 for the largest bank instead of 7, against the one per
- |   resource this cache exists to remove.
+ |   This was once 8 KB, sized against a PCM ring that held 46 ms. That ring is
+ |   gone: the SCSP plays from its own memory now and nothing needs refilling per
+ |   frame (saturn_platform.cxx, onVblank). The pump below still matters, but
+ |   only to keep the sequencer's timers running, so an over-long window is a
+ |   hitch in music timing rather than an underrun. 64 KB is about 330 ms of
+ |   stalled sequencer per call, which loads can afford; a single whole-file read
+ |   would be 800 ms on the largest bank, which they cannot.
  | Author: suinevere
  ----------------------*/
-#define CACHE_WINDOW_BYTES (SECTOR_BYTES * 4)
+#define CACHE_WINDOW_BYTES (SECTOR_BYTES * 32)
 
 /*----------------------
  | SatCdFile
@@ -61,7 +66,7 @@ struct SatCdFile
 {
     SRL::Cd::File *File;
     int32_t        Size;
-    uint8_t       *Data;   /* whole-file cache, or NULL to read from disc */
+    uint8_t       *Data;   /* cache_storage while this file holds it, else NULL */
 };
 
 /*----------------------
@@ -76,6 +81,23 @@ struct SatCdFile
  | Author: suinevere
  ----------------------*/
 #define FILE_CACHE_MAX  (256 * 1024)
+
+/*----------------------
+ | Do not add a minimum size to the whole-file cache.
+ | Description: Tried, and it froze the boot. A 32 KB floor was put here to stop
+ |   memlist.bin claiming the buffer in front of the Cinepak player, on the
+ |   reasoning that a small file is one window off the disc anyway. That reasoning
+ |   confuses file size with access pattern. Resource::readEntries parses
+ |   memlist.bin a byte at a time through File::readByte -- about 2900 reads --
+ |   and every one of them became a GFS_Load with its own seek, which is minutes
+ |   of black screen rather than the memcpys it had been.
+ |
+ |   Size does not predict how a file is read, and the small ones are read the
+ |   most finely. The player's memory is taken back by sat_cd_cache_release
+ |   instead, which is a statement about when the buffer is needed rather than a
+ |   guess about which files deserve it.
+ | Author: suinevere
+ ----------------------*/
 
 /*----------------------
  | g_bounce
@@ -101,6 +123,42 @@ static uint8_t *bounce_buffer()
     }
 
     return g_bounce;
+}
+
+/*----------------------
+ | g_storage
+ | Description: The whole-file cache's one buffer, allocated once from High Work
+ |   RAM on first use and never released.
+ |
+ |   It used to be a Malloc and a Free per open, which is how the introduction's
+ |   seam ended up reading banks off the disc a window at a time: a 200 KB block
+ |   churned on every bank switch fragments High Work RAM, the allocation
+ |   eventually fails, and the failure is silent -- sat_cd_open falls back to
+ |   windowed reads and says nothing. Measured at 2236 ms of the seam.
+ |
+ |   One permanent buffer cannot fail after the first call and cannot fragment
+ |   anything. It costs FILE_CACHE_MAX of High Work RAM for the whole run, which
+ |   is what the old code was taking transiently anyway.
+ | Author: suinevere
+ ----------------------*/
+static uint8_t *g_storage = nullptr;
+
+/*----------------------
+ | cache_storage
+ | Description: Returns the whole-file cache buffer, allocating it on first
+ |   call. Only one file can occupy it, so callers must not ask for it while the
+ |   cached handle is open -- see the g_cacheBusy test at the one call site.
+ | Author: suinevere
+ | Returns: the buffer, or NULL if High Work RAM could not satisfy it
+ ----------------------*/
+static uint8_t *cache_storage()
+{
+    if (g_storage == nullptr)
+    {
+        g_storage = (uint8_t *)SRL::Memory::HighWorkRam::Malloc(FILE_CACHE_MAX);
+    }
+
+    return g_storage;
 }
 
 /*----------------------
@@ -248,17 +306,13 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
         const int32_t rounded =
             (handle->Size + SECTOR_BYTES - 1) / SECTOR_BYTES * SECTOR_BYTES;
 
-        uint8_t *data = (uint8_t *)SRL::Memory::HighWorkRam::Malloc(rounded);
+        uint8_t *data = g_cacheBusy ? nullptr : cache_storage();
 
         if (data != nullptr)
         {
-            // In sector-aligned windows rather than one call, so the PCM ring
-            // can be topped up between them. The banks are up to 209 KB and a
-            // single-speed drive takes over a second over that, against a ring
-            // holding 186 ms -- one monolithic read here was the gap and the
-            // popping heard during loading. sat_cd_read had always pumped
-            // between its windows; this path replaced it for cached files and
-            // did not inherit that.
+            // In sector-aligned windows rather than one call, so the sequencer
+            // keeps ticking between them -- CACHE_WINDOW_BYTES says what that
+            // costs and why it is the size it is.
             //
             // Straight into data, no bounce buffer: every window starts on a
             // sector boundary and data is allocated sector-rounded, so GFS
@@ -286,24 +340,27 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
 
                 loaded += window;
 
-                // The full update, not sat_audio_pump: the sequencer's timers
+                // The full tick, not sat_audio_pump: the sequencer's timers
                 // have to keep running or the music freezes on whatever pattern
-                // was playing when the load started. Safe here in a way it is
-                // not inside Bank::unpack -- SfxPlayer only indexes
+                // was playing when the load started, and the pad has to be
+                // sampled or a press during the load is never seen. Safe here in
+                // a way it is not inside Bank::unpack -- SfxPlayer only indexes
                 // res->_memList (sfxplayer.cxx:51,85) and never loads anything,
                 // so it cannot re-enter this function.
-                sat_audio_update();
+                sat_loading_tick();
             }
 
             if (!ok)
             {
-                // Not fatal: fall back to reading windows off the disc.
-                SRL::Memory::HighWorkRam::Free(data);
+                // Not fatal: fall back to reading windows off the disc. The
+                // buffer is not released -- it is permanent now, see
+                // cache_storage.
             }
             else
             {
                 handle->Data = data;
             }
+
         }
     }
 
@@ -314,11 +371,6 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
     {
         if (g_cache != nullptr)
         {
-            if (g_cache->Data != nullptr)
-            {
-                SRL::Memory::HighWorkRam::Free(g_cache->Data);
-            }
-
             delete g_cache->File;
             delete g_cache;
         }
@@ -347,13 +399,32 @@ extern "C" void sat_cd_close(SatCdFile *file)
         return;
     }
 
-    if (file->Data != nullptr)
-    {
-        SRL::Memory::HighWorkRam::Free(file->Data);
-    }
-
+    // No Data to release: the whole-file buffer belongs to cache_storage and
+    // outlives every handle that points at it.
     delete file->File;
     delete file;
+}
+
+extern "C" void sat_cd_cache_release(void)
+{
+    if (g_cacheBusy)
+    {
+        return;
+    }
+
+    if (g_cache != nullptr)
+    {
+        delete g_cache->File;
+        delete g_cache;
+        g_cache = nullptr;
+        g_cacheName[0] = '\0';
+    }
+
+    if (g_storage != nullptr)
+    {
+        SRL::Memory::HighWorkRam::Free(g_storage);
+        g_storage = nullptr;
+    }
 }
 
 extern "C" int32_t sat_cd_size(SatCdFile *file)
@@ -452,11 +523,13 @@ extern "C" int32_t sat_cd_read(SatCdFile *file, int32_t pos, void *dst, int32_t 
         memcpy(out + done, bounce + skew, want);
         done += want;
 
+
         // Loading is the longest the engine ever goes without reaching
-        // sat_video_present, which is where audio is normally topped up. A
-        // multi-second load with no pump underruns the PCM ring and comes out
-        // as popping, so the ring is fed between windows here too.
-        sat_audio_update();
+        // sat_video_present, which is where the sequencer is normally clocked
+        // and the pad read. Without this a multi-second load holds whatever
+        // pattern was playing when it started and swallows any button pressed
+        // while it runs.
+        sat_loading_tick();
     }
 
     return done;

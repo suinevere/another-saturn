@@ -12,5 +12,8 @@
 - [Another World port surface](another-world-port-surface.md) — `struct System` is the single seam; video/audio/file/libc specifics to reimplement.
 - [SRL CMake indexing target](srl-cmake-indexing-target.md) — the IDE-only CMakeLists and its two non-obvious traps.
 - [Suinevere conventions](suinevere-conventions.md) — banner comment format and the spec→plan→code cadence.
-- [User runs the emulator](user-runs-the-emulator.md) — never launch Mednafen from a tool call; build the disc and hand it over.
+- [User runs the emulator](user-runs-the-emulator.md) — never build and never launch the emulator; write the code and hand it over.
 - [Mednafen BIOS location](mednafen-bios-location.md) — it reads from ~/.mednafen/firmware, and where to find its real logs.
+- [Introduction load seam](intro-load-seam.md) — the 15s black before the introduction, measured stage by stage and cut to 6.5s; the per-call disc latency, the cache that silently stopped working, and the two fixes that backfired.
+- [Chain-loadable boot](chain-loadable-boot.md) — what sat_boot_sanitize reasserts before SRL comes up, and why a program that loads us over itself needs it.
+- [Death menu and loading pump](death-menu-and-loading-pump.md) — handoff at 4d92865; the access code screen is not a part, and the strings that are the only signal for it.

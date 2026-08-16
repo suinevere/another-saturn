@@ -43,6 +43,7 @@ Video::Video(Resource *resParameter, System *stub)
 void Video::init() {
 
 	paletteIdRequested = NO_PALETTE_CHANGE_REQUESTED;
+	_holdDisplay = false;
 
 	uint8_t* tmp = (uint8_t *)malloc(4 * VID_PAGE_SIZE);
 	if (tmp == 0) {
@@ -588,6 +589,10 @@ void Video::updateDisplay(uint8_t pageId) {
 	//Q: Why 160 ?
 	//A: Because one byte gives two palette indices so
 	//   we only need to move 320/2 per line.
+	if (_holdDisplay) {
+		return;
+	}
+
   sys->updateDisplay(_curPagePtr2);
 }
 

@@ -24,6 +24,7 @@
  ----------------------*/
 #include <srl.hpp>
 #include "saturn_movie.h"
+#include "saturn_cdfile.h"
 
 using namespace SRL::Types;
 
@@ -152,6 +153,12 @@ extern "C" int sat_movie_open(const char *file)
     {
         return 0;
     }
+
+    // The decode buffer below wants 143 KB of High Work RAM and the whole-file
+    // cache holds 256 KB of the same bank. Nothing has a bank open while a movie
+    // is starting, so this is free, and the cache comes back at the first load
+    // after the movie closes.
+    sat_cd_cache_release();
 
     g_player = new SRL::CinepakPlayer();
 

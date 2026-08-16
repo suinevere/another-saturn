@@ -28,6 +28,30 @@
 #include "page_rle.h"
 #include "saturn_fade.h"
 
+/*----------------------
+ | VM_DEATH_PROMPT_HOLD_FRAMES
+ | Description: How long the continue prompt is ignored after the death menu
+ |   closes, in frames at 60 Hz -- two seconds. Long enough for a retry to carry
+ |   the script past its wait, short enough that a retry which did not take puts
+ |   the menu back rather than leaving the player on a dead frame.
+ | Author: suinevere
+ ----------------------*/
+#define VM_DEATH_PROMPT_HOLD_FRAMES 120
+
+/*----------------------
+ | ENGINE_AUTOSAVE_SLOT / ENGINE_AUTOSAVE_DEVICE
+ | Description: Where autosaveCheckpoint writes: the first slot, overwriting
+ |   whatever was there. Only "SAVE AND RESUME" reaches it, so the player has
+ |   asked for it and the cost is visible to them.
+ |
+ |   Internal backup RAM rather than the cartridge: it is the device that is
+ |   always there, and an autosave that depends on a cart nobody has plugged in
+ |   is worse than none.
+ | Author: suinevere
+ ----------------------*/
+#define ENGINE_AUTOSAVE_SLOT   0
+#define ENGINE_AUTOSAVE_DEVICE SAT_BUP_INTERNAL
+
 Engine::Engine(System *paramSys, const char *dataDir, const char *saveDir)
 	: sys(paramSys), vm(&mixer, &res, &player, &video, sys), mixer(sys), res(&video, dataDir),
 	player(&mixer, &res, sys), video(&res, sys), _dataDir(dataDir), _saveDir(saveDir), _lastSaveError(SAT_BUP_OK) {
@@ -59,9 +83,32 @@ void Engine::run() {
 		int lit = 0;
 		while (playing && !sys->input.quit) {
 
+			// The script's own signal, not a part change: the access code screen
+			// is drawn and blitted from the part the player died in, held there by
+			// the script's own pause, so there is no part switch to watch for.
+			// vm.deathScreen goes up when its header is drawn, which is the
+			// earliest warning the port gets.
+			//
+			// Dark is set and synced before the hold rather than left to commit on
+			// its own -- slColOffsetA only reaches the hardware on a sync, and a
+			// frame the script is pausing on does not do one, so the frozen frame
+			// would stay lit for as long as that pause lasts.
+			if (vm.deathScreen && !video._holdDisplay) {
+				sat_fade_ramp(SAT_FADE_DARK, 2);
+				video._holdDisplay = true;
+			}
+
 			vm.checkThreadRequests();
 
 			vm.inp_updatePlayer();
+
+			// Once the retry has carried the script back into play, which is
+			// what deathPromptHold running out means. Saving any earlier stores
+			// the death itself.
+			if (saveAfterResume && vm.deathPromptHold == 0) {
+				saveAfterResume = false;
+				autosaveCheckpoint();
+			}
 
 			if (!sys->input.pause) {
 				pauseLatched = false;
@@ -77,11 +124,23 @@ void Engine::run() {
 
 			vm.hostFrame();
 
+			if (vm.deathPrompt) {
+				vm.deathPrompt = false;
+				vm.deathPromptHold = VM_DEATH_PROMPT_HOLD_FRAMES;
+				lit = 0;
+				playing = menu.runDeath();
+				vm.deathScreen = false;
+				video._holdDisplay = false;
+				continue;
+			}
+
 			if (lit < OPENING_FADE_VM_FRAMES) {
 				lit++;
 				sat_fade_set((SAT_FADE_LIT * lit) / OPENING_FADE_VM_FRAMES);
 			}
 		}
+
+		video._holdDisplay = false;
 	}
 
 
@@ -95,6 +154,8 @@ Engine::~Engine(){
 
 
 void Engine::init() {
+
+	saveAfterResume = false;
 
 
 	//Init system
@@ -264,6 +325,11 @@ bool Engine::loadSlot(uint32_t device, int slot) {
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+void Engine::autosaveCheckpoint() {
+	saveSlot(ENGINE_AUTOSAVE_DEVICE, ENGINE_AUTOSAVE_SLOT);
+	_lastSaveError = SAT_BUP_OK;
+}
+
 void Engine::startNewGame() {
 #ifdef BYPASS_PROTECTION
 	vm.initForPart(GAME_PART3);

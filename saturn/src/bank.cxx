@@ -25,6 +25,7 @@
 #endif
 
 
+
 Bank::Bank(const char *dataDir)
 	: _dataDir(dataDir) {
 }
@@ -39,7 +40,7 @@ bool Bank::read(const MemEntry *me, uint8_t *buf) {
 	if (!f.open(bankName, _dataDir))
 		error("Bank::read() unable to open '%s'", bankName);
 
-	
+
 	f.seek(me->bankOffset);
 
 	// Depending if the resource is packed or not we
@@ -53,7 +54,8 @@ bool Bank::read(const MemEntry *me, uint8_t *buf) {
 		_iBuf = buf + me->packedSize - 4;
 		ret = unpack();
 	}
-	
+
+
 	return ret;
 }
 

@@ -127,6 +127,46 @@ struct VirtualMachine {
 	void hostFrame();
 	void executeThread();
 
+	/*----------------------
+	 | VirtualMachine::deathPrompt / deathRetry
+	 | Description: deathPrompt is raised when the script asks for its
+	 |   "PRESS BUTTON OR RETURN TO CONTINUE" text, which the port swallows so
+	 |   Engine::run can offer the save slots over the last frame instead.
+	 |   deathRetry is the answer coming back: it feeds the script one frame of
+	 |   action button, which is exactly what the original prompt was waiting
+	 |   for, so a retry resumes from the checkpoint rather than restarting the
+	 |   chapter.
+	 | Author: suinevere
+	 ----------------------*/
+	/*----------------------
+	 | VirtualMachine::deathScreen
+	 | Description: Raised when the script draws the header of its access code
+	 |   screen, which is the first thing a death puts up and the earliest the
+	 |   port can see one coming.
+	 |
+	 |   The screen is not a part of its own -- it is drawn and blitted from
+	 |   whatever part the player died in, held there by the script's own pause,
+	 |   so there is no part change to watch for. Four attempts to catch it by
+	 |   part id caught nothing.
+	 | Author: suinevere
+	 ----------------------*/
+	bool deathScreen;
+
+	bool deathPrompt;
+	bool deathRetry;
+
+	/*----------------------
+	 | VirtualMachine::deathPromptHold
+	 | Description: Frames left before the continue prompt may raise deathPrompt
+	 |   again. The script redraws its text every frame it is waiting, so without
+	 |   this a retry would be met by the same menu on the very next frame. Set
+	 |   when the menu closes; if the prompt is still being drawn once it runs
+	 |   out, the retry genuinely did not take and offering the menu again is the
+	 |   right answer.
+	 | Author: suinevere
+	 ----------------------*/
+	int deathPromptHold;
+
 	void inp_updatePlayer();
 	void inp_handleSpecialKeys();
 	

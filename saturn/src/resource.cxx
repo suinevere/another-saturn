@@ -302,6 +302,7 @@ void Resource::setupPart(uint16_t partId) {
 	// Mark all resources as located on harddrive.
 	invalidateAll();
 
+
 	_memList[paletteIndex].state = MEMENTRY_STATE_LOAD_ME;
 	_memList[codeIndex].state = MEMENTRY_STATE_LOAD_ME;
 	_memList[videoCinematicIndex].state = MEMENTRY_STATE_LOAD_ME;

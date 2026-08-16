@@ -18,6 +18,7 @@ void menuStateEnterTitle(MenuState *st)
 {
 	st->screen = MENU_TITLE;
 	st->cursor = 0;
+	st->retryRow = false;
 }
 
 /*----------------------
@@ -31,6 +32,7 @@ void menuStateEnterPause(MenuState *st)
 {
 	st->screen = MENU_PAUSE;
 	st->cursor = 0;
+	st->retryRow = false;
 }
 
 /*----------------------
@@ -101,6 +103,27 @@ static MenuAction stepPause(MenuState *st, const MenuInput *in)
 }
 
 /*----------------------
+ | menuStateEnterLoad
+ | Description: Opens the slot list in load mode with no screen behind it, for
+ |   the death prompt. returnScreen is set here rather than by the caller
+ |   because it stays private to this file.
+ | Author: suinevere
+ | Params: st -- state to reset; back -- where a cancel lands; retry -- whether
+ |   to offer the retry row
+ | Returns: N/A
+ ----------------------*/
+void menuStateEnterLoad(MenuState *st, MenuScreen back, bool retry)
+{
+	st->screen = MENU_SLOTS;
+	st->returnScreen = back;
+	st->saving = false;
+	st->slotCursor = retry ? MENU_SLOT_RESUME : 0;
+	st->confirmYes = false;
+	st->retryRow = retry;
+	st->pending = MENU_ACT_NONE;
+}
+
+/*----------------------
  | stepSlots
  | Description: Slot-list transitions: row cursor, device toggle when a cart
  |   is present, cancel back to the opening screen, and confirm -- which
@@ -111,16 +134,23 @@ static MenuAction stepPause(MenuState *st, const MenuInput *in)
  ----------------------*/
 static MenuAction stepSlots(MenuState *st, const MenuInput *in)
 {
+	// Backing out of the death menu is a resume, not a retreat -- there is no
+	// screen behind it, and leaving the run is its own row now.
 	if (in->cancel) {
+		if (st->retryRow) {
+			return MENU_ACT_RETRY;
+		}
 		st->screen = st->returnScreen;
 		return MENU_ACT_NONE;
 	}
+	const int first = st->retryRow ? MENU_SLOT_RESUME : 0;
+	const int last = st->retryRow ? MENU_SLOT_TITLE : SAVE_NUM_SLOTS - 1;
 	if (in->up) {
-		st->slotCursor = (st->slotCursor + SAVE_NUM_SLOTS - 1) % SAVE_NUM_SLOTS;
+		st->slotCursor = (st->slotCursor > first) ? st->slotCursor - 1 : last;
 		return MENU_ACT_NONE;
 	}
 	if (in->down) {
-		st->slotCursor = (st->slotCursor + 1) % SAVE_NUM_SLOTS;
+		st->slotCursor = (st->slotCursor < last) ? st->slotCursor + 1 : first;
 		return MENU_ACT_NONE;
 	}
 	if (in->left || in->right) {
@@ -132,6 +162,15 @@ static MenuAction stepSlots(MenuState *st, const MenuInput *in)
 		return MENU_ACT_RESCAN_SLOTS;
 	}
 	if (in->confirm) {
+		if (st->slotCursor == MENU_SLOT_RESUME) {
+			return MENU_ACT_RETRY;
+		}
+		if (st->slotCursor == MENU_SLOT_SAVE_RESUME) {
+			return MENU_ACT_SAVE_RETRY;
+		}
+		if (st->slotCursor == MENU_SLOT_TITLE) {
+			return MENU_ACT_RETURN_TO_TITLE;
+		}
 		SlotState state = st->slots[st->slotCursor].state;
 		if (st->saving) {
 			if (state == SLOT_EMPTY) {

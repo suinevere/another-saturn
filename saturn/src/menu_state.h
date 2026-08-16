@@ -38,6 +38,8 @@ enum MenuAction {
 	MENU_ACT_SAVE_SLOT,
 	MENU_ACT_LOAD_SLOT,
 	MENU_ACT_RETURN_TO_TITLE,
+	MENU_ACT_RETRY,
+	MENU_ACT_SAVE_RETRY,
 	MENU_ACT_RESCAN_SLOTS
 };
 
@@ -68,6 +70,7 @@ struct MenuState {
 	uint32_t device;
 	bool cartPresent;
 	bool confirmYes;
+	bool retryRow;
 	MenuAction pending;
 	SlotInfo slots[SAVE_NUM_SLOTS];
 
@@ -90,7 +93,32 @@ void menuStateEnterTitle(MenuState *st);
  | Params: st -- state to reset
  | Returns: N/A
  ----------------------*/
+/*----------------------
+ | MENU_SLOT_RESUME / MENU_SLOT_SAVE_RESUME / MENU_SLOT_TITLE
+ | Description: The slotCursor values for the rows the death menu puts around the
+ |   slots -- two above and one below. Off the ends of the array rather than
+ |   inside it, so the slots keep their own indices and nothing that reads
+ |   st->slots has to know the rows exist; every path that indexes the array
+ |   tests for them first.
+ | Author: suinevere
+ ----------------------*/
+#define MENU_SLOT_RESUME      (-2)
+#define MENU_SLOT_SAVE_RESUME (-1)
+#define MENU_SLOT_TITLE       (SAVE_NUM_SLOTS)
+
 void menuStateEnterPause(MenuState *st);
+
+/*----------------------
+ | menuStateEnterLoad
+ | Description: Opens the slot list directly, in load mode, for a caller that
+ |   has no screen behind it -- the death prompt. back is where a cancel lands,
+ |   and retry adds a row under the slots that resumes the run instead.
+ | Author: suinevere
+ | Params: st -- state to reset; back -- the screen a cancel returns to; retry
+ |   -- whether to offer the retry row
+ | Returns: N/A
+ ----------------------*/
+void menuStateEnterLoad(MenuState *st, MenuScreen back, bool retry);
 
 /*----------------------
  | menuStateStep
