@@ -25,6 +25,7 @@
 #include "saturn_platform.h"
 #include "saturn_fade.h"
 #include "opening.h"
+#include "saturn_probe.h"
 
 extern "C" {
 #include <string.h>
@@ -68,10 +69,15 @@ enum {
  | MENU_TITLE_IDLE_FRAMES
  | Description: How long the title screen sits untouched before the attract
  |   starts the introduction again, in frames at 60 Hz -- fifteen seconds.
+ |
+ |   [DEBUG-a4f2] Temporarily 60 rather than 900. The seam under investigation
+ |   is only reachable through this timer, and a fifteen second wait per
+ |   attempt is most of the round trip. Restore to 900 with the rest of the
+ |   instrumentation.
  | Author: suinevere
  ----------------------*/
 enum {
-	MENU_TITLE_IDLE_FRAMES = 900
+	MENU_TITLE_IDLE_FRAMES = 60
 };
 
 /*----------------------
@@ -429,6 +435,80 @@ static void menuDrawTitleScreen(uint8_t *page, const MenuState *st) {
 }
 
 /*----------------------
+ | MENU_PROBE_MAX_ROWS / MENU_PROBE_TOP_Y / MENU_PROBE_ROW_STEP
+ | Description: [DEBUG-a4f2] Where the seam's mark table prints over the title
+ |   card. Fourteen rows at eleven scanlines from y=40 ends at 183, inside the
+ |   page's 200 lines.
+ | Author: suinevere
+ ----------------------*/
+enum {
+	MENU_PROBE_MAX_ROWS = 14,
+	MENU_PROBE_TOP_Y    = 40,
+	MENU_PROBE_ROW_STEP = 11
+};
+
+/*----------------------
+ | menuProbeLine
+ | Description: [DEBUG-a4f2] Formats one mark as a padded name and a decimal
+ |   millisecond count. Hand rolled rather than sprintf'd to keep the debug
+ |   overlay from dragging formatting code into the link.
+ | Author: suinevere
+ | Params: out -- at least 20 bytes; name -- mark name; ms -- elapsed
+ |         milliseconds
+ | Returns: N/A
+ ----------------------*/
+static void menuProbeLine(char *out, const char *name, uint32_t ms) {
+	int n = 0;
+
+	while (*name != '\0' && n < 6) {
+		out[n++] = *name++;
+	}
+
+	while (n < 7) {
+		out[n++] = ' ';
+	}
+
+	char digits[10];
+	int d = 0;
+
+	if (ms == 0) {
+		digits[d++] = '0';
+	}
+
+	while (ms != 0 && d < 10) {
+		digits[d++] = (char)('0' + (ms % 10));
+		ms /= 10;
+	}
+
+	while (d > 0) {
+		out[n++] = digits[--d];
+	}
+
+	out[n] = '\0';
+}
+
+/*----------------------
+ | menuDrawProbeOverlay
+ | Description: [DEBUG-a4f2] Prints the seam's mark table over the title card,
+ |   one line per milestone. Draws nothing until an attract has run, so the
+ |   boot title card is untouched.
+ | Author: suinevere
+ | Params: page -- MENU_PAGE_SIZE bytes
+ | Returns: N/A
+ ----------------------*/
+static void menuDrawProbeOverlay(uint8_t *page) {
+	const uint8_t *font = Video::_font;
+	const int count = sat_probe_count();
+
+	for (int i = 0; i < count && i < MENU_PROBE_MAX_ROWS; i++) {
+		char line[20];
+		menuProbeLine(line, sat_probe_name(i), sat_probe_ms(i));
+		menuDrawText(page, font, 2, MENU_PROBE_TOP_Y + i * MENU_PROBE_ROW_STEP,
+		             MENU_BASE_SEL, line);
+	}
+}
+
+/*----------------------
  | menuDrawPauseScreen
  | Description: Paints the pause panel over whatever is already in the page,
  |   which is the frozen frame remapped to monochrome.
@@ -552,6 +632,7 @@ static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
 	switch (st->screen) {
 	case MENU_TITLE:
 		menuDrawTitleScreen(page, st);
+		menuDrawProbeOverlay(page);
 		break;
 	case MENU_PAUSE:
 		menuDrawPauseScreen(page, st);
