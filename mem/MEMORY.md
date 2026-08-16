@@ -12,5 +12,5 @@
 - [Another World port surface](another-world-port-surface.md) — `struct System` is the single seam; video/audio/file/libc specifics to reimplement.
 - [SRL CMake indexing target](srl-cmake-indexing-target.md) — the IDE-only CMakeLists and its two non-obvious traps.
 - [Suinevere conventions](suinevere-conventions.md) — banner comment format and the spec→plan→code cadence.
-- [User runs the emulator](user-runs-the-emulator.md) — never launch Mednafen from a tool call; build the disc and hand it over.
+- [User runs the emulator](user-runs-the-emulator.md) — never build and never launch the emulator; write the code and hand it over.
 - [Mednafen BIOS location](mednafen-bios-location.md) — it reads from ~/.mednafen/firmware, and where to find its real logs.
