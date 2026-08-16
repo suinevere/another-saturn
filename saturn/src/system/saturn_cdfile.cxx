@@ -76,7 +76,7 @@ struct SatCdFile
 {
     SRL::Cd::File *File;
     int32_t        Size;
-    uint8_t       *Data;   /* whole-file cache, or NULL to read from disc */
+    uint8_t       *Data;   /* cache_storage while this file holds it, else NULL */
 };
 
 /*----------------------
@@ -116,6 +116,42 @@ static uint8_t *bounce_buffer()
     }
 
     return g_bounce;
+}
+
+/*----------------------
+ | g_storage
+ | Description: The whole-file cache's one buffer, allocated once from High Work
+ |   RAM on first use and never released.
+ |
+ |   It used to be a Malloc and a Free per open, which is how the introduction's
+ |   seam ended up reading banks off the disc a window at a time: a 200 KB block
+ |   churned on every bank switch fragments High Work RAM, the allocation
+ |   eventually fails, and the failure is silent -- sat_cd_open falls back to
+ |   windowed reads and says nothing. Measured at 2236 ms of the seam.
+ |
+ |   One permanent buffer cannot fail after the first call and cannot fragment
+ |   anything. It costs FILE_CACHE_MAX of High Work RAM for the whole run, which
+ |   is what the old code was taking transiently anyway.
+ | Author: suinevere
+ ----------------------*/
+static uint8_t *g_storage = nullptr;
+
+/*----------------------
+ | cache_storage
+ | Description: Returns the whole-file cache buffer, allocating it on first
+ |   call. Only one file can occupy it, so callers must not ask for it while the
+ |   cached handle is open -- see the g_cacheBusy test at the one call site.
+ | Author: suinevere
+ | Returns: the buffer, or NULL if High Work RAM could not satisfy it
+ ----------------------*/
+static uint8_t *cache_storage()
+{
+    if (g_storage == nullptr)
+    {
+        g_storage = (uint8_t *)SRL::Memory::HighWorkRam::Malloc(FILE_CACHE_MAX);
+    }
+
+    return g_storage;
 }
 
 /*----------------------
@@ -263,7 +299,7 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
         const int32_t rounded =
             (handle->Size + SECTOR_BYTES - 1) / SECTOR_BYTES * SECTOR_BYTES;
 
-        uint8_t *data = (uint8_t *)SRL::Memory::HighWorkRam::Malloc(rounded);
+        uint8_t *data = g_cacheBusy ? nullptr : cache_storage();
 
         if (data != nullptr)
         {
@@ -312,8 +348,9 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
 
             if (!ok)
             {
-                // Not fatal: fall back to reading windows off the disc.
-                SRL::Memory::HighWorkRam::Free(data);
+                // Not fatal: fall back to reading windows off the disc. The
+                // buffer is not released -- it is permanent now, see
+                // cache_storage.
             }
             else
             {
@@ -331,11 +368,6 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
     {
         if (g_cache != nullptr)
         {
-            if (g_cache->Data != nullptr)
-            {
-                SRL::Memory::HighWorkRam::Free(g_cache->Data);
-            }
-
             delete g_cache->File;
             delete g_cache;
         }
@@ -364,11 +396,8 @@ extern "C" void sat_cd_close(SatCdFile *file)
         return;
     }
 
-    if (file->Data != nullptr)
-    {
-        SRL::Memory::HighWorkRam::Free(file->Data);
-    }
-
+    // No Data to release: the whole-file buffer belongs to cache_storage and
+    // outlives every handle that points at it.
     delete file->File;
     delete file;
 }
