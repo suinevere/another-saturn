@@ -101,6 +101,31 @@ jobs:
           grep -q '0.BIN' /tmp/base-listing || { echo "ERROR: 0.BIN missing -- disc would not boot"; exit 1; }
           grep -q 'OPENING.CPK' /tmp/base-listing || { echo "ERROR: OPENING.CPK missing -- no title opening"; exit 1; }
 
+      # The program on its own, for anyone embedding this game on a disc of
+      # their own rather than burning ours -- a multi-game compilation loads
+      # 0.bin over its own program and streams OPENING.CPK from the volume
+      # root, and needs neither the ISO nor the kit around them.
+      #
+      # Staged after the assertion above on purpose: neither file is gated
+      # data, but nothing publishable should be produced before the step that
+      # proves no gated data is present.
+      #
+      # SHA256SUMS is the point of the whole step. `gh release upload
+      # --clobber` below can replace an asset in place, so a tag alone is not
+      # a reproducible pin; a consumer that records these digests can tell a
+      # re-uploaded asset from the one it was built against.
+      - name: Stage program files
+        id: program
+        run: |
+          set -e
+          PROG="$RUNNER_TEMP/program"
+          mkdir -p "$PROG"
+          cp saturn/cd/data/0.bin "$PROG/0.bin"
+          cp saturn/cd/data/OPENING.CPK "$PROG/OPENING.CPK"
+          (cd "$PROG" && sha256sum 0.bin OPENING.CPK > SHA256SUMS)
+          cat "$PROG/SHA256SUMS"
+          echo "dir=$PROG" >> "$GITHUB_OUTPUT"
+
       - name: Stage setup kit
         id: kit
         run: |
@@ -175,6 +200,16 @@ jobs:
           name: ${{ steps.package.outputs.artifact_name }}
           path: ${{ steps.kit.outputs.stage_dir }}
 
+      # Its own artifact rather than a folder inside the kit's: a consumer
+      # after the program wants two files, not a disc image and a setup script
+      # they have to dig past.
+      - name: Upload program files as workflow artifact (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DISC_NAME }} - Program Files (${{ steps.kit.outputs.ver }})
+          path: ${{ steps.program.outputs.dir }}
+
       # Tag runs: attach to a release, creating it if missing.
       - name: Attach to GitHub release (tag runs)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -190,9 +225,20 @@ jobs:
             printf '%s\n' \
               "Automated Another World Saturn build from $TAG." \
               "" \
-              "Unzip and run \`update.bat\` (double-click on Windows, or \`bash update.bat\`)." \
-              "It downloads the original PC DOS data files and builds a burnable cue/bin." \
-              "See README.md in the zip." > /tmp/notes.md
+              "**To play:** download the Setup Kit zip, unzip it, and run \`update.bat\`" \
+              "(double-click on Windows, or \`bash update.bat\`). It downloads the original" \
+              "PC DOS data files and builds a burnable cue/bin. See README.md in the zip." \
+              "" \
+              "**To embed this game on your own disc:** \`0.bin\` is the program, linked at" \
+              "0x06004000, and \`OPENING.CPK\` is the title movie it streams from the volume" \
+              "root. Neither carries game data. Verify against \`SHA256SUMS\` rather than" \
+              "trusting the tag -- release assets can be replaced in place." > /tmp/notes.md
             gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md
           fi
           gh release upload "$TAG" "${{ steps.package.outputs.zip_path }}" --clobber
+          # Individually, not zipped: a consumer script fetches them by name
+          # with one curl each and no unpacking step.
+          gh release upload "$TAG" \
+            "${{ steps.program.outputs.dir }}/0.bin" \
+            "${{ steps.program.outputs.dir }}/OPENING.CPK" \
+            "${{ steps.program.outputs.dir }}/SHA256SUMS" --clobber

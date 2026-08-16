@@ -103,3 +103,31 @@ jobs:
         with:
           name: another-world-saturn-complete-${{ github.sha }}
           path: ${{ runner.temp }}/disc/
+
+      # The same two files release.yml publishes, so a manual run of either
+      # workflow yields a program that can be embedded on someone else's disc.
+      # Deliberately a SEPARATE artifact from the disc above: that one has the
+      # original data baked in and is not ours to hand out, while these two
+      # carry none and are. Mixing them into one download would make a
+      # redistributable pair look like part of a private build.
+      - name: Stage and upload program files
+        run: |
+          set -e
+          PROG="$RUNNER_TEMP/program"
+          mkdir -p "$PROG"
+          cp saturn/cd/data/0.bin "$PROG/0.bin"
+          cp saturn/cd/data/OPENING.CPK "$PROG/OPENING.CPK"
+          (cd "$PROG" && sha256sum 0.bin OPENING.CPK > SHA256SUMS)
+          # Prove the claim in the comment above rather than asserting it: a
+          # bank file reaching this artifact would be exactly the leak the
+          # separation exists to prevent.
+          if ls "$PROG"/bank* "$PROG"/BANK* "$PROG"/*MEMLIST* 2>/dev/null | grep -q .; then
+            echo "ERROR: game data staged into the program artifact"; exit 1
+          fi
+          cat "$PROG/SHA256SUMS"
+
+      - name: Upload program files artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: another-world-saturn-program-${{ github.sha }}
+          path: ${{ runner.temp }}/program/
