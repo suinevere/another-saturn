@@ -47,6 +47,7 @@ static bool     g_stopped = false;
 static const int16_t PROBE_TINTS[SAT_PROBE_TAG_COUNT][3] = {
     { 255,   0,   0 },
     { 255, 128,   0 },
+    { 255, 255, 255 },
     { 255, 255,   0 },
     {   0, 255,   0 },
     {   0, 255, 255 },
@@ -64,6 +65,7 @@ static const int16_t PROBE_TINTS[SAT_PROBE_TAG_COUNT][3] = {
 static const char *const PROBE_NAMES[SAT_PROBE_TAG_COUNT] = {
     "ENTER",
     "INVAL",
+    "FILL",
     "OPEN",
     "READ",
     "UNPACK",

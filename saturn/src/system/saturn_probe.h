@@ -36,11 +36,18 @@ extern "C" {
  |   names: SAT_PROBE_BANK_OPENED means the time since the previous mark was
  |   spent inside f.open, and so on. SAT_PROBE_ATTRACT_ENTER opens the
  |   measurement and closes nothing.
+ |
+ |   SAT_PROBE_CACHE_FILL is marked from inside sat_cd_open and only when a
+ |   whole-file prefetch actually went to the disc, so its hit count is the
+ |   number of bank re-reads the one-entry name cache did not absorb. What is
+ |   left against SAT_PROBE_BANK_OPENED after it is open overhead that is not
+ |   the prefetch.
  | Author: suinevere
  ----------------------*/
 enum SatProbeTag {
 	SAT_PROBE_ATTRACT_ENTER = 0,
 	SAT_PROBE_INVALIDATED,
+	SAT_PROBE_CACHE_FILL,
 	SAT_PROBE_BANK_OPENED,
 	SAT_PROBE_BANK_READ,
 	SAT_PROBE_BANK_UNPACKED,

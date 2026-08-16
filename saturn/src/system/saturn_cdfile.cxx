@@ -11,6 +11,7 @@
 #include "saturn_cdfile.h"
 #include "saturn_audio.h"
 #include "saturn_platform.h"
+#include "saturn_probe.h"
 
 // SGL's <string.h> has no extern "C" guard of its own, so including it from a
 // .cxx without this wrapper declares memcpy with C++ linkage and the call site
@@ -43,14 +44,20 @@ extern "C" {
  |   and the ring is refilled the instant each window lands, so the exposure is
  |   one window, not the whole file.
  |
- |   32 KB, which is what this used, is over 200 ms on a single-speed drive: four
- |   times the ring. That survived testing only because emulated drives are fast;
- |   it would very likely pop on real hardware. The extra seeks cost nothing
- |   measurable -- 26 for the largest bank instead of 7, against the one per
- |   resource this cache exists to remove.
+ |   [DEBUG-a4f2] The claim this carried -- that the extra seeks cost nothing
+ |   measurable -- is false, and by a wide margin. Measured on the introduction's
+ |   seam: bank01, 209 KB, took 3900 ms through this loop. That is 26 windows at
+ |   150 ms each, against the 27 ms a 2x drive needs to transfer 8 KB. The other
+ |   120 ms is latency, about one revolution of the disc: LoadBytes takes a start
+ |   sector and issues a fresh command per call, so every window waits for the
+ |   disc to come back around. The loop runs at 54 KB/s, a sixth of the drive.
+ |
+ |   So the window is back at 32 KB while that is confirmed -- four times fewer
+ |   revolutions waited on. If it holds, the audio trade this was lowered for has
+ |   to be paid some other way than by quartering load throughput.
  | Author: suinevere
  ----------------------*/
-#define CACHE_WINDOW_BYTES (SECTOR_BYTES * 4)
+#define CACHE_WINDOW_BYTES (SECTOR_BYTES * 16)
 
 /*----------------------
  | SatCdFile
@@ -304,6 +311,8 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
             {
                 handle->Data = data;
             }
+
+            sat_probe_mark(SAT_PROBE_CACHE_FILL);
         }
     }
 
