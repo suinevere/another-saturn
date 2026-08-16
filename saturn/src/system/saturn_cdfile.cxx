@@ -93,18 +93,21 @@ struct SatCdFile
 #define FILE_CACHE_MAX  (256 * 1024)
 
 /*----------------------
- | CACHE_MIN_BYTES
- | Description: The smallest file worth taking the whole-file buffer for.
+ | Do not add a minimum size to the whole-file cache.
+ | Description: Tried, and it froze the boot. A 32 KB floor was put here to stop
+ |   memlist.bin claiming the buffer in front of the Cinepak player, on the
+ |   reasoning that a small file is one window off the disc anyway. That reasoning
+ |   confuses file size with access pattern. Resource::readEntries parses
+ |   memlist.bin a byte at a time through File::readByte -- about 2900 reads --
+ |   and every one of them became a GFS_Load with its own seek, which is minutes
+ |   of black screen rather than the memcpys it had been.
  |
- |   Without this the buffer is claimed by whatever is read first, and at boot
- |   that is memlist.bin at about 3 KB -- which left 256 KB of High Work RAM
- |   standing in front of CinepakPlayer::LoadMovie and failed the opening's
- |   143 KB decode buffer outright. The banks this cache exists for are 7 KB to
- |   204 KB, and the small ones are one window each on the disc anyway, so
- |   nothing that matters is given up by skipping them.
+ |   Size does not predict how a file is read, and the small ones are read the
+ |   most finely. The player's memory is taken back by sat_cd_cache_release
+ |   instead, which is a statement about when the buffer is needed rather than a
+ |   guess about which files deserve it.
  | Author: suinevere
  ----------------------*/
-#define CACHE_MIN_BYTES (32 * 1024)
 
 /*----------------------
  | g_bounce
@@ -308,7 +311,7 @@ extern "C" SatCdFile *sat_cd_open(const char *name)
     // rather than literally one call -- see the loop -- but that is seven seeks
     // for the largest bank instead of one per resource, and every read after it
     // is a memcpy. CACHE_WINDOW_BYTES sets how much is read between audio pumps.
-    if (handle->Size >= CACHE_MIN_BYTES && handle->Size <= FILE_CACHE_MAX)
+    if (handle->Size > 0 && handle->Size <= FILE_CACHE_MAX)
     {
         const int32_t rounded =
             (handle->Size + SECTOR_BYTES - 1) / SECTOR_BYTES * SECTOR_BYTES;
