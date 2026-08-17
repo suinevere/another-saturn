@@ -37,6 +37,11 @@ g++ $OWN_FLAGS -DAUTO_DETECT_PLATFORM -I../src -I../src/system \
     ../src/savedata.cxx
 ./run_tests_savedata
 
+echo "== bup devmap =="
+g++ $OWN_FLAGS -I../src/system \
+    -o run_tests_bupdevmap test_bup_devmap.cxx ../src/system/bup_devmap.cxx
+./run_tests_bupdevmap
+
 echo "== settings =="
 g++ $OWN_FLAGS -I../src -I../src/system \
     -o run_tests_settings test_settings.cxx stub_saturn_backup.cxx \

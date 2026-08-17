@@ -22,7 +22,10 @@ extern "C" {
 
 /*----------------------
  | SAT_BUP_INTERNAL / SAT_BUP_CART
- | Description: Device ids, matching SGL's BUP_MAIN_UNIT and BUP_CURTRIDGE.
+ | Description: This port's logical device names. Their values are SGL's
+ |   BUP_MAIN_UNIT and BUP_CURTRIDGE, but those are unit ids and NOT the device
+ |   argument the BUP calls take -- saturn_backup.cxx translates. Never pass one
+ |   of these to a BUP_* call.
  | Author: suinevere
  ----------------------*/
 #define SAT_BUP_INTERNAL 1
