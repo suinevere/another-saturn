@@ -27,7 +27,7 @@ enum {
 /*----------------------
  | Settings
  | Description: Everything the player can configure. swapButtons false means A
- |   and C act while B jumps; true means the reverse.
+ |   attacks and C jumps; true swaps those two. B always runs.
  | Author: suinevere
  ----------------------*/
 struct Settings {
@@ -99,18 +99,18 @@ int settingsStore(const Settings *s);
 
 /*----------------------
  | settingsMapFaceButtons
- | Description: Resolves the three face buttons into the two signals the VM can
- |   hear. A and C are always the same action as each other and B is always the
- |   other one, so the layout is one bit. Takes plain booleans rather than
- |   SAT_PAD_* bits to keep this header free of platform includes.
+ | Description: Gives each face button one action -- attack, run and jump --
+ |   and the layout bit swaps which of A and C attacks. B is always run. Takes
+ |   plain booleans rather than SAT_PAD_* bits to keep this header free of
+ |   platform includes.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: a, b, c -- whether each face button is held; swap -- the layout;
- |   jump, action -- outputs, always written
+ |   jump, action, run -- outputs, always written
  | Returns: N/A
  ----------------------*/
 void settingsMapFaceButtons(bool a, bool b, bool c, bool swap,
-                            bool *jump, bool *action);
+                            bool *jump, bool *action, bool *run);
 
 #endif /* SETTINGS_H */

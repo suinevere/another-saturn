@@ -5,6 +5,18 @@ metadata:
   type: project
 ---
 
+> **PARTLY SUPERSEDED** by [[death-menu-rework-in-flight]], 2026-08-17. Still accurate and
+> still load-bearing: everything under "The fact that cost five wrong fixes" — the access code
+> screen is not a game part, the strings in `staticres.cxx` are the only signal, the order in
+> which the script draws them, and the three invisible facts about `slColOffsetA`,
+> `menuRenderFrame` and `sys->input.code`.
+>
+> No longer current: the commit and branch state below (`main` has moved on several times); the
+> account of the death menu's rows, which are being replaced by resume / save and resume / load
+> / save and quit / quit on `port/death-menu`; and the open item about `A SELECT  B BACK` being
+> wrong, which that rework deletes. The open items about B and C of the agreed plan — holding
+> the title card over the attract load and over Start Game — are still open and still unclaimed.
+
 Handoff, 2026-08-16. `main` is `4d92865`, one squashed commit on top of `989fb9f`. The
 pre-squash history (27 commits) is on the local branch **and** tag `pre-squash/2026-08-16`
 and **nowhere else** — the force push removed it from the remote. Delete those refs only

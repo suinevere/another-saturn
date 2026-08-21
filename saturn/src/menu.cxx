@@ -1,8 +1,9 @@
 /*----------------------
  | menu.cxx
- | Description: The screens themselves -- title card, pause menu, slot list and
- |   confirm prompt -- plus the input edge detector and the palette handling
- |   that lets the pause menu sit over the frozen frame remapped to monochrome.
+ | Description: The screens themselves -- title card, pause menu, slot list,
+ |   confirm prompt and death screen -- plus the input edge detector and the
+ |   palette handling that lets the pause menu sit over the frozen frame
+ |   remapped to monochrome.
  |   The logic lives in menu_state.cxx and the pixels in menu_draw.cxx; this
  |   file is the glue that owns the page, talks to Engine, and reads backup
  |   RAM.
@@ -127,6 +128,35 @@ static void menuAppendChar(char *dst, int cap, int *pos, char c) {
 }
 
 /*----------------------
+ | menuAppendInt
+ | Description: Appends a non-negative integer in decimal, or a single dash
+ |   when it is negative.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: dst -- buffer; cap -- its capacity; pos -- write cursor; v -- the
+ |   value
+ | Returns: N/A
+ ----------------------*/
+static void menuAppendInt(char *dst, int cap, int *pos, int v) {
+	if (v < 0) {
+		menuAppendChar(dst, cap, pos, '-');
+		return;
+	}
+
+	char tmp[8];
+	int n = 0;
+	do {
+		tmp[n++] = (char)('0' + (v % 10));
+		v /= 10;
+	} while (v != 0 && n < (int)sizeof(tmp));
+
+	while (n > 0) {
+		menuAppendChar(dst, cap, pos, tmp[--n]);
+	}
+}
+
+/*----------------------
  | menuAppendStr
  | Description: Appends a NUL-terminated string to a bounded string builder.
  | Author: suinevere
@@ -193,6 +223,8 @@ static const char *menuStatusText(int err, uint32_t device) {
 		return "SAVE NOT FOUND";
 	case SAT_BUP_ERR_EXISTS:
 		return "SLOT ALREADY IN USE";
+	case ENGINE_SAVE_WARN_NO_BACKGROUND:
+		return "SAVED WITHOUT BACKGROUND";
 	case SAT_BUP_ERR_BROKEN:
 		return "SAVE DATA DAMAGED";
 	default:
@@ -255,25 +287,6 @@ static void menuSlotRow(char *out, int cap, int slot, const SlotInfo *info) {
 	menuAppendPad2(out, cap, &pos, minute);
 }
 
-/*----------------------
- | menuHasAnySave
- | Description: Whether a device holds at least one loadable save. This is what
- |   savedataPickDefaultDevice's hasSaves arguments mean -- it does not derive
- |   them itself, and a wrong answer here silently selects the wrong device.
- | Author: suinevere
- | Params: device -- SAT_BUP_INTERNAL or SAT_BUP_CART
- | Returns: 1 if any slot probes as SLOT_OK, 0 otherwise
- ----------------------*/
-static int menuHasAnySave(uint32_t device) {
-	for (int i = 0; i < SAVE_NUM_SLOTS; ++i) {
-		SlotInfo info;
-		if (savedataProbe(device, i, &info) == SLOT_OK) {
-			return 1;
-		}
-	}
-	return 0;
-}
-
 void Menu::init(Engine *e) {
 	_engine = e;
 	_sys = e->sys;
@@ -302,6 +315,8 @@ void Menu::init(Engine *e) {
  |   first frame is presented turns any fault there into a black screen with
  |   nothing to go on. Deferring it to the moment the slot list opens keeps the
  |   title card and Start Game working even if backup RAM does not.
+ |   The device is always internal; the cartridge, when present, is reached
+ |   with L or R from the slot list.
  | Author: suinevere
  | Params: N/A
  | Returns: N/A
@@ -316,11 +331,7 @@ void Menu::ensureDevices() {
 	sat_bup_probe(SAT_BUP_CART, &_devCart);
 
 	_st.cartPresent = (_devCart.present != 0);
-	_st.device = savedataPickDefaultDevice(&_devInternal, &_devCart,
-	                                       menuHasAnySave(SAT_BUP_INTERNAL),
-	                                       _devCart.present
-	                                           ? menuHasAnySave(SAT_BUP_CART)
-	                                           : 0);
+	_st.device = SAT_BUP_INTERNAL;
 }
 
 /*----------------------
@@ -443,7 +454,7 @@ static void menuDrawTitleScreen(uint8_t *page, const MenuState *st) {
  | Returns: N/A
  ----------------------*/
 static void menuDrawPauseScreen(uint8_t *page, const MenuState *st,
-                                int settingsError) {
+                                int settingsError, const char *diag) {
 	const uint8_t *font = Video::_font;
 
 	menuDrawFill(page, 80, 48, 168, 112, MENU_COL_BORDER);
@@ -452,43 +463,65 @@ static void menuDrawPauseScreen(uint8_t *page, const MenuState *st,
 	menuDrawText(page, font, 13, 76, st->cursor == 1 ? MENU_BASE_SEL : MENU_BASE_DIM, "SAVE GAME");
 	menuDrawText(page, font, 13, 92, st->cursor == 2 ? MENU_BASE_SEL : MENU_BASE_DIM, "LOAD GAME");
 	menuDrawText(page, font, 13, 108, st->cursor == 3 ? MENU_BASE_SEL : MENU_BASE_DIM,
-	             st->swapButtons ? "FIRE B  JUMP A/C" : "FIRE A/C  JUMP B");
+	             st->swapButtons ? "FIRE C  JUMP A" : "FIRE A  JUMP C");
 	menuDrawText(page, font, 13, 124, st->cursor == 4 ? MENU_BASE_SEL : MENU_BASE_DIM, "RETURN TO MENU");
 	menuDrawText(page, font, 11, 60 + st->cursor * 16, MENU_BASE_SEL, ">");
 
 	if (settingsError != SAT_BUP_OK) {
 		menuDrawText(page, font, 13, 140, MENU_BASE_DIM, "NOT SAVED");
+	} else if (diag != 0 && diag[0] != 0) {
+		menuDrawText(page, font, 13, 140, MENU_BASE_DIM, diag);
+	}
+}
+
+/*----------------------
+ | menuDrawDeathScreen
+ | Description: Paints the five rows a death offers, on black. The panel is
+ |   sized by the status message rather than the rows: the rows would fit the
+ |   pause menu's narrower panel, but menuStatusText's longest reachable message
+ |   for an internal device is 22 characters, and at cell column 8 that needs a
+ |   usable region reaching x=240. Its height follows whether a status is
+ |   present, so the usual no-error case does not leave two empty rows below
+ |   QUIT.
+ | Author: suinevere
+ | Dependencies: menu_draw.h, saturn_backup.h
+ | Globals: N/A
+ | Params: page -- compositing page; st -- state, for the cursor position;
+ |   statusError -- a failed deferred save to report, or SAT_BUP_OK for none
+ | Returns: N/A
+ ----------------------*/
+static void menuDrawDeathScreen(uint8_t *page, const MenuState *st,
+                                int statusError) {
+	const uint8_t *font = Video::_font;
+	const char *status = menuStatusText(statusError, SAT_BUP_INTERNAL);
+	const int height = (status != 0) ? 128 : 104;
+
+	menuDrawFill(page, 48, 48, 224, height, MENU_COL_BORDER);
+	menuDrawFill(page, 50, 50, 220, height - 4, MENU_COL_PANEL);
+	menuDrawText(page, font, 10, 64, st->cursor == 0 ? MENU_BASE_SEL : MENU_BASE_DIM, "RESUME");
+	menuDrawText(page, font, 10, 80, st->cursor == 1 ? MENU_BASE_SEL : MENU_BASE_DIM, "SAVE & RESUME");
+	menuDrawText(page, font, 10, 96, st->cursor == 2 ? MENU_BASE_SEL : MENU_BASE_DIM, "LOAD GAME");
+	menuDrawText(page, font, 10, 112, st->cursor == 3 ? MENU_BASE_SEL : MENU_BASE_DIM, "SAVE & QUIT");
+	menuDrawText(page, font, 10, 128, st->cursor == 4 ? MENU_BASE_SEL : MENU_BASE_DIM, "QUIT");
+	menuDrawText(page, font, 8, 64 + st->cursor * 16, MENU_BASE_SEL, ">");
+
+	if (status != 0) {
+		menuDrawText(page, font, 8, 148, MENU_BASE_DIM, status);
 	}
 }
 
 /*----------------------
  | menuDrawSlotScreen
- | Description: Paints the slot list, with the device row shown only when a
+ | Description: Paints the slot list, with the device banner shown only when a
  |   cartridge is present -- present, not necessarily usable, so an unformatted
  |   or write-protected cart still shows and carries its message.
  | Author: suinevere
+ | Dependencies: menu_draw.h, saturn_backup.h
+ | Globals: N/A
  | Params: page -- compositing page; st -- state; statusError -- last failure
  |   to report, or SAT_BUP_OK for none
  | Returns: N/A
  ----------------------*/
-/*----------------------
- | MENU_DEATH_*
- | Description: Where the slot list rows sit when the death menu adds its three
- |   extra ones. Six rows and a status line do not fit the spacing the plain list
- |   uses, so the slots close up to 14 scanlines and everything below them moves
- |   down. The panel ends at y=184 and the hint is the last thing in it.
- | Author: suinevere
- ----------------------*/
-enum {
-	MENU_DEATH_RESUME_Y = 56,
-	MENU_DEATH_SAVE_Y   = 72,
-	MENU_DEATH_SLOT_TOP = 92,
-	MENU_DEATH_ROW_STEP = 14,
-	MENU_DEATH_TITLE_Y  = 140,
-	MENU_DEATH_STATUS_Y = 156,
-	MENU_DEATH_HINT_Y   = 170
-};
-
 static void menuDrawSlotScreen(uint8_t *page, const MenuState *st,
                                int statusError) {
 	const uint8_t *font = Video::_font;
@@ -500,51 +533,25 @@ static void menuDrawSlotScreen(uint8_t *page, const MenuState *st,
 	             st->saving ? "SAVE GAME" : "LOAD GAME");
 
 	if (st->cartPresent) {
-		menuDrawText(page, font, 12, st->retryRow ? 40 : 48, MENU_BASE_DIM,
-		             st->device == SAT_BUP_CART ? "L <  CARTRIDGE  > R"
-		                                        : "L <   INTERNAL  > R");
-	}
-
-	const int slotTop = st->retryRow ? MENU_DEATH_SLOT_TOP : 72;
-	const int slotStep = st->retryRow ? MENU_DEATH_ROW_STEP : 16;
-	int cursorY = slotTop + st->slotCursor * slotStep;
-
-	if (st->retryRow) {
-		menuDrawText(page, font, 7, MENU_DEATH_RESUME_Y,
-		             st->slotCursor == MENU_SLOT_RESUME ? MENU_BASE_SEL : MENU_BASE_DIM,
-		             "RESUME");
-		menuDrawText(page, font, 7, MENU_DEATH_SAVE_Y,
-		             st->slotCursor == MENU_SLOT_SAVE_RESUME ? MENU_BASE_SEL : MENU_BASE_DIM,
-		             "SAVE AND RESUME");
-		menuDrawText(page, font, 7, MENU_DEATH_TITLE_Y,
-		             st->slotCursor == MENU_SLOT_TITLE ? MENU_BASE_SEL : MENU_BASE_DIM,
-		             "RETURN TO TITLE");
-
-		if (st->slotCursor == MENU_SLOT_RESUME) {
-			cursorY = MENU_DEATH_RESUME_Y;
-		} else if (st->slotCursor == MENU_SLOT_SAVE_RESUME) {
-			cursorY = MENU_DEATH_SAVE_Y;
-		} else if (st->slotCursor == MENU_SLOT_TITLE) {
-			cursorY = MENU_DEATH_TITLE_Y;
-		}
+		menuDrawText(page, font, 6, 48, MENU_BASE_DIM,
+		             st->device == SAT_BUP_CART ? "L  <     CARTRIDGE     >  R"
+		                                        : "L  <  INTERNAL MEMORY  >  R");
 	}
 
 	for (int i = 0; i < SAVE_NUM_SLOTS; ++i) {
 		menuSlotRow(row, (int)sizeof(row), i, &st->slots[i]);
-		menuDrawText(page, font, 7, slotTop + i * slotStep,
+		menuDrawText(page, font, 7, 72 + i * 16,
 		             i == st->slotCursor ? MENU_BASE_SEL : MENU_BASE_DIM, row);
 	}
 
-	menuDrawText(page, font, 5, cursorY, MENU_BASE_SEL, ">");
+	menuDrawText(page, font, 5, 72 + st->slotCursor * 16, MENU_BASE_SEL, ">");
 
 	const char *status = menuStatusText(statusError, st->device);
 	if (status != 0) {
-		menuDrawText(page, font, 5, st->retryRow ? MENU_DEATH_STATUS_Y : 136,
-		             MENU_BASE_DIM, status);
+		menuDrawText(page, font, 5, 136, MENU_BASE_DIM, status);
 	}
 
-	menuDrawText(page, font, 5, st->retryRow ? MENU_DEATH_HINT_Y : 160,
-	             MENU_BASE_DIM, "A SELECT   B BACK");
+	menuDrawText(page, font, 5, 160, MENU_BASE_DIM, "A SELECT   B BACK");
 }
 
 /*----------------------
@@ -604,7 +611,7 @@ static void menuDrawConfirmScreen(uint8_t *page, const MenuState *st) {
 static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
                             int statusError, int settingsError, bool overlay,
                             bool refreshBackdrop, const uint8_t *backdrop,
-                            const uint8_t *freezePal) {
+                            const uint8_t *freezePal, const char *diag) {
 	if (overlay && refreshBackdrop) {
 		memcpy(page, backdrop, MENU_PAGE_SIZE);
 		menuFreezeRemap(page, freezePal);
@@ -615,7 +622,7 @@ static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
 		menuDrawTitleScreen(page, st);
 		break;
 	case MENU_PAUSE:
-		menuDrawPauseScreen(page, st, settingsError);
+		menuDrawPauseScreen(page, st, settingsError, diag);
 		break;
 	case MENU_SLOTS:
 		if (!overlay) {
@@ -629,6 +636,12 @@ static void menuRenderFrame(uint8_t *page, System *sys, const MenuState *st,
 		}
 		menuDrawSlotScreen(page, st, statusError);
 		menuDrawConfirmScreen(page, st);
+		break;
+	case MENU_DEATH:
+		if (!overlay) {
+			memset(page, 0, MENU_PAGE_SIZE);
+		}
+		menuDrawDeathScreen(page, st, statusError);
 		break;
 	default:
 		break;
@@ -685,7 +698,7 @@ bool Menu::runTitle() {
 	const int bootFade = menuRunAttract(_sys, _engine, _page, false);
 
 	_sys->setPalette(MENU_ART_TITLE_PALETTE);
-	menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0);
+	menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0, 0);
 	sat_fade_ramp(SAT_FADE_LIT, bootFade);
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
@@ -745,7 +758,7 @@ bool Menu::runTitle() {
 			_sys->setPalette(MENU_ART_PALETTE);
 		}
 
-		menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0);
+		menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0, 0);
 
 		// After the render, not before: the attract left the screen black and
 		// this is the first field the title card is actually on it.
@@ -761,9 +774,9 @@ bool Menu::runTitle() {
 
 /*----------------------
  | Menu::runDeath
- | Description: What the player gets instead of the script's "PRESS BUTTON OR
- |   RETURN TO CONTINUE": resume, save and resume, the three slots, and a way
- |   back to the title.
+ | Description: The five rows a death offers, drawn on black in place of the
+ |   script's continue prompt. Also the screen a failed deferred save
+ |   re-opens, which is what statusError carries.
  |
  |   Drawn on black rather than over the last frame. The script puts its access
  |   code screen up before it asks for the password part, so by every moment the
@@ -775,24 +788,23 @@ bool Menu::runTitle() {
  |   when the player died.
  | Author: suinevere
  | Dependencies: menu_state.h, engine.h
- | Params: N/A
+ | Params: statusError -- a failed save to report, or SAT_BUP_OK for none;
+ |   scriptWaiting -- true when the script is paused on its own prompt and a
+ |   resume must feed it a button, false when this is a re-entry after a
+ |   failed save and the script is already running
  | Returns: true to carry on playing -- a retry or a successful load -- false to
  |   return to the title card
  ----------------------*/
-bool Menu::runDeath() {
-	ensureDevices();
-	menuStateEnterLoad(&_st, MENU_TITLE, true);
-	menuRescan(&_st);
-	_statusError = SAT_BUP_OK;
+bool Menu::runDeath(int statusError, bool scriptWaiting) {
+	menuStateEnterDeath(&_st);
+	_statusError = statusError;
 
 	_engine->player.stop();
 	_engine->mixer.stopAll();
 
 	_sys->setPalette(MENU_ART_PALETTE);
 
-	MenuScreen lastScreen = MENU_NONE;
-	menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0);
-	lastScreen = _st.screen;
+	menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0, 0);
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
 	// After the first frame is up, not before it: brightening while the
@@ -807,22 +819,33 @@ bool Menu::runDeath() {
 		MenuInput in;
 		menuPollEdges(_sys, &_prevPad, &_repeatTimer, &in);
 
+		const MenuScreen prevScreen = _st.screen;
 		const MenuAction act = menuStateStep(&_st, &in);
+
+		if (prevScreen != MENU_DEATH && _st.screen == MENU_DEATH) {
+			_statusError = SAT_BUP_OK;
+		}
 
 		if (act == MENU_ACT_RESCAN_SLOTS) {
 			_statusError = SAT_BUP_OK;
 			ensureDevices();
 			menuRescan(&_st);
 		} else if (act == MENU_ACT_RETRY) {
-			_engine->vm.deathRetry = true;
+			_engine->vm.deathRetry = scriptWaiting;
 			resume = true;
 			break;
 		} else if (act == MENU_ACT_RETURN_TO_TITLE) {
 			resume = false;
 			break;
 		} else if (act == MENU_ACT_SAVE_RETRY) {
-			_engine->vm.deathRetry = true;
+			_engine->vm.deathRetry = scriptWaiting;
 			_engine->saveAfterResume = true;
+			resume = true;
+			break;
+		} else if (act == MENU_ACT_SAVE_AND_QUIT) {
+			_engine->vm.deathRetry = scriptWaiting;
+			_engine->saveAfterResume = true;
+			_engine->quitAfterSave = true;
 			resume = true;
 			break;
 		} else if (act == MENU_ACT_LOAD_SLOT) {
@@ -835,12 +858,7 @@ bool Menu::runDeath() {
 			menuRescan(&_st);
 		}
 
-		if (_st.screen == MENU_TITLE) {
-			break;
-		}
-
-		menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0);
-		lastScreen = _st.screen;
+		menuRenderFrame(_page, _sys, &_st, _statusError, SAT_BUP_OK, false, false, 0, 0, 0);
 	}
 
 	// Out to black rather than straight back to the game: the page still holds
@@ -862,6 +880,17 @@ bool Menu::runPause() {
 	_statusError = SAT_BUP_OK;
 	_settingsError = SAT_BUP_OK;
 
+	int diagPos = 0;
+	_loadDiag[0] = 0;
+	menuAppendStr(_loadDiag, (int)sizeof(_loadDiag), &diagPos, "BG ");
+	menuAppendInt(_loadDiag, (int)sizeof(_loadDiag), &diagPos,
+	              _engine->lastLoadFrameKind());
+	menuAppendChar(_loadDiag, (int)sizeof(_loadDiag), &diagPos, ' ');
+	menuAppendInt(_loadDiag, (int)sizeof(_loadDiag), &diagPos,
+	              _engine->lastLoadFrameLen());
+	menuAppendStr(_loadDiag, (int)sizeof(_loadDiag), &diagPos,
+	              _engine->lastLoadFrameOk() ? " OK" : " NO");
+
 	_engine->player.pause();
 	_engine->mixer.stopAll();
 
@@ -870,7 +899,7 @@ bool Menu::runPause() {
 
 	MenuScreen lastScreen = MENU_NONE;
 	menuRenderFrame(_page, _sys, &_st, _statusError, _settingsError, true, true,
-	                backdrop, _savedPal);
+	                backdrop, _savedPal, _loadDiag);
 	lastScreen = _st.screen;
 	menuPrimeEdges(_sys, &_prevPad, &_repeatTimer);
 
@@ -899,8 +928,11 @@ bool Menu::runPause() {
 			resume = false;
 			break;
 		} else if (act == MENU_ACT_SAVE_SLOT) {
-			_engine->saveSlot(_st.device, _st.slotCursor);
+			const bool saved = _engine->saveSlot(_st.device, _st.slotCursor);
 			_statusError = _engine->lastSaveError();
+			if (saved && _engine->lastSaveDroppedBackground()) {
+				_statusError = ENGINE_SAVE_WARN_NO_BACKGROUND;
+			}
 			menuRescan(&_st);
 		} else if (act == MENU_ACT_LOAD_SLOT) {
 			if (_engine->loadSlot(_st.device, _st.slotCursor)) {
@@ -914,7 +946,7 @@ bool Menu::runPause() {
 
 		const bool refreshBackdrop = (_st.screen != lastScreen);
 		menuRenderFrame(_page, _sys, &_st, _statusError, _settingsError, true,
-		                refreshBackdrop, backdrop, _savedPal);
+		                refreshBackdrop, backdrop, _savedPal, _loadDiag);
 		lastScreen = _st.screen;
 	}
 

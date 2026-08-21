@@ -1,10 +1,10 @@
 /*----------------------
  | menu.h
- | Description: The menu shell: the title card, the pause menu, the slot list
- |   and the confirm prompt, drawn into a page of its own and driven by
- |   menu_state's logic. This is the only menu file that touches the engine --
- |   menu_state.cxx and menu_draw.cxx are deliberately free of it so their logic
- |   and pixel arithmetic stay host-testable.
+ | Description: The menu shell: the title card, the pause menu, the slot list,
+ |   the confirm prompt and the death screen, drawn into a page of its own and
+ |   driven by menu_state's logic. This is the only menu file that touches the
+ |   engine -- menu_state.cxx and menu_draw.cxx are deliberately free of it so
+ |   their logic and pixel arithmetic stay host-testable.
  | Author: suinevere
  | Dependencies: menu_state.h, saturn_backup.h
  ----------------------*/
@@ -30,6 +30,7 @@ struct Menu {
 	Engine *_engine;
 	System *_sys;
 	uint8_t *_page;
+	char _loadDiag[20];
 	MenuState _st;
 	uint8_t _savedPal[32];
 	int _statusError;
@@ -74,6 +75,20 @@ struct Menu {
 	bool runTitle();
 
 	/*----------------------
+	 | Menu::runDeath
+	 | Description: The five rows a death offers, drawn on black in place of the
+	 |   script's continue prompt. Also the screen a failed deferred save
+	 |   re-opens, which is what statusError carries.
+	 | Author: suinevere
+	 | Params: statusError -- a failed save to report, or SAT_BUP_OK for none;
+	 |   scriptWaiting -- true when the script is paused on its own prompt and a
+	 |   resume must feed it a button, false when this is a re-entry after a
+	 |   failed save and the script is already running
+	 | Returns: true to carry on playing, false to return to the title card
+	 ----------------------*/
+	bool runDeath(int statusError, bool scriptWaiting);
+
+	/*----------------------
 	 | Menu::runPause
 	 | Description: Runs the pause menu over the frozen frame remapped to a
 	 |   monochrome ramp, restoring the game's palette before it returns.
@@ -81,17 +96,6 @@ struct Menu {
 	 | Params: N/A
 	 | Returns: true to resume play, false to go back to the title card
 	 ----------------------*/
-	/*----------------------
-	 | Menu::runDeath
-	 | Description: The load slots over the frozen last frame, offered in place
-	 |   of the script's continue prompt, with a retry row under them.
-	 | Author: suinevere
-	 | Params: N/A
-	 | Returns: true to carry on playing, false to return to the title card
-	 ----------------------*/
-	bool runDeath();
-
-
 	bool runPause();
 };
 

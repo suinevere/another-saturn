@@ -1,9 +1,9 @@
 /*----------------------
  | savedata.h
  | Description: Save slot metadata between the engine and saturn_backup.h's
- |   raw BUP wrapper -- slot naming, save header packing, slot probing,
- |   chapter names, and backup device defaulting. Must not include srl.hpp or
- |   sega_bup.h so it stays safe to include from any engine translation unit.
+ |   raw BUP wrapper -- slot naming, save header packing, slot probing, and
+ |   chapter names. Must not include srl.hpp or sega_bup.h so it stays safe to
+ |   include from any engine translation unit.
  | Author: suinevere
  | Dependencies: saturn_backup.h, intern.h
  ----------------------*/
@@ -24,6 +24,47 @@ enum {
 	SAVE_HEADER_SIZE = 48,
 	SAVE_MAX_BYTES   = 8192
 };
+
+/*----------------------
+ | SAVE_FRAME_NONE / SAVE_FRAME_RLE / SAVE_FRAME_DELTA
+ | Description: Which codec the saved background frame uses, stored in the
+ |   field that used to be a plain has-a-frame flag. Old saves wrote 1 and are
+ |   still read with the plain run-length decoder; new ones write 2.
+ | Author: suinevere
+ ----------------------*/
+enum {
+	SAVE_FRAME_NONE     = 0,
+	SAVE_FRAME_RLE      = 1,
+	SAVE_FRAME_DELTA    = 2,
+	SAVE_FRAME_DELTA_H2 = 3,
+	SAVE_FRAME_DELTA_H4 = 4,
+	SAVE_FRAME_DELTA_H8 = 5
+};
+
+/*----------------------
+ | SAVE_FRAME_ROW_STEP
+ | Description: The scanline step each delta frame kind was encoded with, so
+ |   load can pass the encoder's own value back to the decoder.
+ | Author: suinevere
+ | Params: kind -- a SAVE_FRAME_* value
+ | Returns: rows per kept scanline, or 0 when the kind carries no delta frame
+ ----------------------*/
+inline int savedataFrameRowStep(int kind)
+{
+	if (kind == SAVE_FRAME_DELTA) {
+		return 1;
+	}
+	if (kind == SAVE_FRAME_DELTA_H2) {
+		return 2;
+	}
+	if (kind == SAVE_FRAME_DELTA_H4) {
+		return 4;
+	}
+	if (kind == SAVE_FRAME_DELTA_H8) {
+		return 8;
+	}
+	return 0;
+}
 
 /*----------------------
  | SlotState
@@ -88,19 +129,6 @@ bool savedataReadHeader(const uint8_t *buf, uint16_t *ver, uint16_t *partId,
  | Returns: the same state written to out->state
  ----------------------*/
 SlotState savedataProbe(uint32_t device, int slot, SlotInfo *out);
-
-/*----------------------
- | savedataPickDefaultDevice
- | Description: Chooses which backup device the save menus should open on.
- | Author: suinevere
- | Params: internal, cart -- probe results for each device; internalHasSaves,
- |   cartHasSaves -- non-zero if that device already holds an AW_SAVE* file
- | Returns: SAT_BUP_CART only when the cart is present, formatted, and holds
- |   saves while internal does not; SAT_BUP_INTERNAL otherwise
- ----------------------*/
-uint32_t savedataPickDefaultDevice(const SatBupDev *internal,
-                                   const SatBupDev *cart, int internalHasSaves,
-                                   int cartHasSaves);
 
 /*----------------------
  | savedataChapterName

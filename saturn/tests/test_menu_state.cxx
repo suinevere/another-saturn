@@ -203,6 +203,44 @@ static void test_save_over_used_slot_asks_first(void)
     CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_SAVE_SLOT);
 }
 
+static void test_confirmed_overwrite_stays_on_the_slot_list(void)
+{
+    MenuState st;
+    memset(&st, 0, sizeof(st));
+    menuStateEnterPause(&st);
+    st.screen = MENU_SLOTS;
+    st.saving = true;
+    st.slots[0].state = SLOT_OK;
+
+    MenuInput confirm = press("confirm");
+    menuStateStep(&st, &confirm);
+    CHECK_EQ(st.screen, MENU_CONFIRM);
+
+    MenuInput left = press("left");
+    menuStateStep(&st, &left);
+    CHECK(st.confirmYes);
+
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_SAVE_SLOT);
+    CHECK_EQ(st.screen, MENU_SLOTS);
+}
+
+static void test_declined_overwrite_also_stays_on_the_slot_list(void)
+{
+    MenuState st;
+    memset(&st, 0, sizeof(st));
+    menuStateEnterPause(&st);
+    st.screen = MENU_SLOTS;
+    st.saving = true;
+    st.slots[0].state = SLOT_OK;
+
+    MenuInput confirm = press("confirm");
+    menuStateStep(&st, &confirm);
+    CHECK_EQ(st.screen, MENU_CONFIRM);
+
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_NONE);
+    CHECK_EQ(st.screen, MENU_SLOTS);
+}
+
 static void test_load_refuses_empty_and_damaged_slots(void)
 {
     MenuState st;
@@ -415,8 +453,125 @@ static void test_entering_a_screen_preserves_the_button_layout(void)
     menuStateEnterTitle(&st);
     CHECK(st.swapButtons);
 
-    menuStateEnterLoad(&st, MENU_TITLE, false);
+    menuStateEnterLoad(&st, MENU_TITLE);
     CHECK(st.swapButtons);
+}
+
+static void freshDeath(MenuState *st)
+{
+    memset(st, 0, sizeof(*st));
+    menuStateEnterDeath(st);
+}
+
+static void test_death_starts_on_resume(void)
+{
+    MenuState st;
+    freshDeath(&st);
+    CHECK_EQ(st.screen, MENU_DEATH);
+    CHECK_EQ(st.cursor, 0);
+}
+
+static void test_death_resume_row(void)
+{
+    MenuState st;
+    freshDeath(&st);
+    MenuInput confirm = press("confirm");
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_RETRY);
+}
+
+static void test_death_save_and_resume_row(void)
+{
+    MenuState st;
+    freshDeath(&st);
+    st.cursor = 1;
+    MenuInput confirm = press("confirm");
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_SAVE_RETRY);
+}
+
+static void test_death_save_and_quit_row(void)
+{
+    MenuState st;
+    freshDeath(&st);
+    st.cursor = 3;
+    MenuInput confirm = press("confirm");
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_SAVE_AND_QUIT);
+}
+
+static void test_death_quit_row(void)
+{
+    MenuState st;
+    freshDeath(&st);
+    st.cursor = 4;
+    MenuInput confirm = press("confirm");
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_RETURN_TO_TITLE);
+}
+
+static void test_death_cancel_resumes_from_any_row(void)
+{
+    for (int row = 0; row < 5; ++row) {
+        MenuState st;
+        freshDeath(&st);
+        st.cursor = row;
+        MenuInput cancel = press("cancel");
+        CHECK_EQ(menuStateStep(&st, &cancel), MENU_ACT_RETRY);
+    }
+}
+
+static void test_death_cursor_wraps_across_five_rows(void)
+{
+    MenuState st;
+    freshDeath(&st);
+
+    MenuInput up = press("up");
+    menuStateStep(&st, &up);
+    CHECK_EQ(st.cursor, 4);
+
+    MenuInput down = press("down");
+    menuStateStep(&st, &down);
+    CHECK_EQ(st.cursor, 0);
+}
+
+static void test_death_down_reaches_every_row(void)
+{
+    MenuState st;
+    freshDeath(&st);
+    MenuInput down = press("down");
+
+    for (int expected = 1; expected <= 4; ++expected) {
+        menuStateStep(&st, &down);
+        CHECK_EQ(st.cursor, expected);
+    }
+
+    menuStateStep(&st, &down);
+    CHECK_EQ(st.cursor, 0);
+}
+
+static void test_death_load_opens_the_slot_list_in_load_mode(void)
+{
+    MenuState st;
+    freshDeath(&st);
+    st.cursor = 2;
+
+    MenuInput confirm = press("confirm");
+    CHECK_EQ(menuStateStep(&st, &confirm), MENU_ACT_RESCAN_SLOTS);
+    CHECK_EQ(st.screen, MENU_SLOTS);
+    CHECK(!st.saving);
+    CHECK_EQ(st.slotCursor, 0);
+}
+
+static void test_slot_cancel_returns_to_the_death_menu(void)
+{
+    MenuState st;
+    freshDeath(&st);
+    st.cursor = 2;
+
+    MenuInput confirm = press("confirm");
+    menuStateStep(&st, &confirm);
+    CHECK_EQ(st.screen, MENU_SLOTS);
+
+    MenuInput cancel = press("cancel");
+    CHECK_EQ(menuStateStep(&st, &cancel), MENU_ACT_NONE);
+    CHECK_EQ(st.screen, MENU_DEATH);
 }
 
 int main(void)
@@ -433,6 +588,16 @@ int main(void)
     test_left_and_right_do_not_toggle_the_buttons_row();
     test_left_and_right_do_nothing_off_the_buttons_row();
     test_entering_a_screen_preserves_the_button_layout();
+    test_death_starts_on_resume();
+    test_death_resume_row();
+    test_death_save_and_resume_row();
+    test_death_save_and_quit_row();
+    test_death_quit_row();
+    test_death_cancel_resumes_from_any_row();
+    test_death_cursor_wraps_across_five_rows();
+    test_death_down_reaches_every_row();
+    test_death_load_opens_the_slot_list_in_load_mode();
+    test_slot_cancel_returns_to_the_death_menu();
     test_return_to_menu_asks_for_confirmation();
     test_confirm_defaults_to_no();
     test_confirm_yes_returns_to_title();
@@ -441,6 +606,8 @@ int main(void)
     test_save_over_used_slot_decline_stays_on_slots();
     test_confirm_cancel_declines_return_to_title();
     test_confirm_cancel_declines_save_overwrite();
+    test_confirmed_overwrite_stays_on_the_slot_list();
+    test_declined_overwrite_also_stays_on_the_slot_list();
     test_load_refuses_empty_and_damaged_slots();
     test_save_over_damaged_slot_is_allowed();
     test_device_toggle_only_when_cart_present();

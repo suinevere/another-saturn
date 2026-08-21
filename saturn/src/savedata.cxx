@@ -1,7 +1,7 @@
 /*----------------------
  | savedata.cxx
  | Description: Save slot metadata: slot naming, header packing/unpacking,
- |   slot probing, backup device defaulting, and chapter names.
+ |   slot probing, and chapter names.
  | Author: suinevere
  | Dependencies: savedata.h, serializer.h
  ----------------------*/
@@ -132,28 +132,6 @@ SlotState savedataProbe(uint32_t device, int slot, SlotInfo *out)
 	out->partId = partId;
 	out->date = date;
 	return SLOT_OK;
-}
-
-/*----------------------
- | savedataPickDefaultDevice
- | Description: Chooses which backup device the save menus should open on.
- | Author: suinevere
- | Params: internal -- unused; kept in the signature for symmetry with cart
- |   and for callers that may need it later; cart -- probe result for the
- |   cartridge device; internalHasSaves, cartHasSaves -- non-zero if that
- |   device already holds an AW_SAVE* file
- | Returns: SAT_BUP_CART only when the cart is present, formatted, and holds
- |   saves while internal does not; SAT_BUP_INTERNAL otherwise
- ----------------------*/
-uint32_t savedataPickDefaultDevice(const SatBupDev *internal,
-                                   const SatBupDev *cart, int internalHasSaves,
-                                   int cartHasSaves)
-{
-	(void)internal;
-	if (cart->present && cart->formatted && cartHasSaves && !internalHasSaves) {
-		return SAT_BUP_CART;
-	}
-	return SAT_BUP_INTERNAL;
 }
 
 /*----------------------

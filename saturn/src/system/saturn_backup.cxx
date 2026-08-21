@@ -244,8 +244,33 @@ extern "C" int sat_bup_read(uint32_t device, const char *name, void *dst,
 }
 
 /*----------------------
+ | sat_bup_fill_dir
+ | Description: Fills a BupDir for a write, stamping it with the current RTC
+ |   time. Separate because an overwrite has to build it twice.
+ | Author: suinevere
+ | Params: dir -- the directory entry to fill; name -- BUP filename; comment --
+ |   up to 10 characters; size -- how many bytes the save is
+ | Returns: N/A
+ ----------------------*/
+static void sat_bup_fill_dir(BupDir *dir, const char *name,
+                             const char *comment, int32_t size)
+{
+    memset(dir, 0, sizeof(*dir));
+    strncpy((char *)dir->filename, name, 11);
+    strncpy((char *)dir->comment, comment, 10);
+    dir->language = BUP_ENGLISH;
+    dir->date = sat_bup_date_now();
+    dir->datasize = (uint32_t)size;
+    dir->blocksize = 0;
+}
+
+/*----------------------
  | sat_bup_write
- | Description: Writes a save, stamping it with the current RTC time.
+ | Description: Writes a save, stamping it with the current RTC time. The BIOS
+ |   refuses an existing filename with BUP_FOUND even when wmode asks for an
+ |   overwrite -- measured on hardware, and sega_bup.h documents no wmode
+ |   constants to argue with -- so a refused overwrite deletes the entry and
+ |   writes again rather than trusting the flag.
  | Author: suinevere
  | Params: device -- device id; name -- BUP filename; comment -- up to 10
  |   characters; src -- the bytes; size -- how many; overwrite -- non-zero to
@@ -262,16 +287,17 @@ extern "C" int sat_bup_write(uint32_t device, const char *name,
         return SAT_BUP_ERR_NONE;
     }
 
-    memset(&dir, 0, sizeof(dir));
-    strncpy((char *)dir.filename, name, 11);
-    strncpy((char *)dir.comment, comment, 10);
-    dir.language = BUP_ENGLISH;
-    dir.date = sat_bup_date_now();
-    dir.datasize = (uint32_t)size;
-    dir.blocksize = 0;
+    sat_bup_fill_dir(&dir, name, comment, size);
 
     int32_t rc = BUP_Write((uint32_t)hw, &dir, (uint8_t *)src,
                            overwrite ? 1 : 0);
+
+    if (overwrite && rc == BUP_FOUND) {
+        BUP_Delete((uint32_t)hw, (uint8_t *)name);
+        sat_bup_fill_dir(&dir, name, comment, size);
+        rc = BUP_Write((uint32_t)hw, &dir, (uint8_t *)src, 1);
+    }
+
     return sat_bup_map_error(rc);
 }
 

@@ -93,11 +93,13 @@ void SaturnSystem::processEvents() {
 
 	bool jump = false;
 	bool action = false;
+	bool run = false;
 	settingsMapFaceButtons((pad & SAT_PAD_A) != 0, (pad & SAT_PAD_B) != 0,
 	                       (pad & SAT_PAD_C) != 0, sat_input_get_swap() != 0,
-	                       &jump, &action);
+	                       &jump, &action, &run);
 	input.jump   = jump;
 	input.button = action;
+	input.run    = run;
 	input.pause  = (pad & SAT_PAD_PAUSE) != 0;
 
 	input.menuConfirm = (pad & (SAT_PAD_A | SAT_PAD_C)) != 0;

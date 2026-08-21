@@ -123,9 +123,8 @@ int settingsStore(const Settings *s)
 
 /*----------------------
  | settingsMapFaceButtons
- | Description: Resolves the three face buttons into the two signals the VM can
- |   hear. A and C are always the same action as each other and B is always the
- |   other one, so the layout is one bit.
+ | Description: Gives each face button one action -- attack, run and jump --
+ |   and the layout bit swaps which of A and C attacks. B is always run.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -134,10 +133,9 @@ int settingsStore(const Settings *s)
  | Returns: N/A
  ----------------------*/
 void settingsMapFaceButtons(bool a, bool b, bool c, bool swap,
-                            bool *jump, bool *action)
+                            bool *jump, bool *action, bool *run)
 {
-	const bool ac = a || c;
-
-	*jump   = swap ? ac : b;
-	*action = swap ? b : ac;
+	*action = swap ? c : a;
+	*jump   = swap ? a : c;
+	*run    = b;
 }

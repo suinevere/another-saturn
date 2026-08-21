@@ -54,7 +54,8 @@ struct Video {
 	typedef void (Video::*drawLine)(int16_t x1, int16_t x2, uint8_t col);
 
 	enum {
-		VID_PAGE_SIZE  = 320 * 200 / 2
+		VID_PAGE_SIZE  = 320 * 200 / 2,
+		VID_PAGE_STRIDE = 320 / 2
 	};
 
 	static const uint8_t _font[];

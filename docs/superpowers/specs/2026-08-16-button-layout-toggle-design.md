@@ -25,6 +25,23 @@ them from two things: `sys->input.dirMask` and the single boolean `sys->input.bu
 | `HERO_POS_LEFT_RIGHT` (0xFC) | `DIR_LEFT` / `DIR_RIGHT` |
 | `HERO_POS_MASK` (0xFD), `HERO_ACTION_POS_MASK` (0xFE) | bitwise union of the above |
 
+> **Corrected 2026-08-20, twice — read the whole note before trusting anything here about
+> running.** The paragraph below is wrong: it claims there is no run input. There is, and it
+> is the **action bit**. `HERO_ACTION_POS_MASK` (0xFE) is a union of the direction bits, the
+> jump bit (8) and the action bit (0x80); with the action bit set *and* a left/right bit set
+> in that same mask, the script runs. That is why holding attack ran, which the human
+> reported from play as "attack/shoot is the button you hold to run, and it sucks".
+>
+> A first correction to this spec claimed run and jump were one signal and could not be bound
+> separately. **That was also wrong.** They are separable by shaping what the VM is told:
+> attack suppresses left/right so the action bit never sits beside a direction, and run raises
+> the action bit only while a direction is held. Implemented in `a2f4478`.
+>
+> Still open: the human reported the *jump* button running before the remap and *attack*
+> running after it, which is only consistent if the script runs on a direction plus either
+> bit. Only play can settle that. See `run-is-the-jump-signal` in memory. The original text is
+> kept below because the mistake is instructive.
+
 **There is no run input.** Whatever distinguishes walking from running, the script
 decides it; nothing in the bytecode's interface exposes a pace. So the port has exactly
 two bindable actions:

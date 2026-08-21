@@ -56,7 +56,9 @@
 
 Engine::Engine(System *paramSys, const char *dataDir, const char *saveDir)
 	: sys(paramSys), vm(&mixer, &res, &player, &video, sys), mixer(sys), res(&video, dataDir),
-	player(&mixer, &res, sys), video(&res, sys), _dataDir(dataDir), _saveDir(saveDir), _lastSaveError(SAT_BUP_OK) {
+	player(&mixer, &res, sys), video(&res, sys), _dataDir(dataDir), _saveDir(saveDir), _lastSaveError(SAT_BUP_OK),
+	_lastSaveNoBackground(false), _lastLoadFrameKind(-1), _lastLoadFrameLen(-1),
+	_lastLoadFrameOk(false) {
 }
 
 /*----------------------
@@ -109,7 +111,16 @@ void Engine::run() {
 			// the death itself.
 			if (saveAfterResume && vm.deathPromptHold == 0) {
 				saveAfterResume = false;
-				autosaveCheckpoint();
+				const bool saved = autosaveCheckpoint();
+				const bool wasQuitting = quitAfterSave;
+				quitAfterSave = false;
+
+				if (!saved) {
+					deathSaveError = lastSaveError();
+				} else if (wasQuitting) {
+					playing = false;
+					continue;
+				}
 			}
 
 			if (!sys->input.pause) {
@@ -126,23 +137,29 @@ void Engine::run() {
 
 			vm.hostFrame();
 
-			if (vm.deathPrompt) {
+			if (vm.deathPrompt || deathSaveError != SAT_BUP_OK) {
+				const bool scriptWaiting = vm.deathPrompt;
+				const int pending = deathSaveError;
 				vm.deathPrompt = false;
+				deathSaveError = SAT_BUP_OK;
 				vm.deathPromptHold = VM_DEATH_PROMPT_HOLD_FRAMES;
 				lit = 0;
-				playing = menu.runDeath();
+				quitAfterSave = false;
+				playing = menu.runDeath(pending, scriptWaiting);
 				vm.deathScreen = false;
-				video._holdDisplay = false;
+				video._holdDisplay = quitAfterSave;
 				continue;
 			}
 
-			if (lit < OPENING_FADE_VM_FRAMES) {
+			if (!quitAfterSave && lit < OPENING_FADE_VM_FRAMES) {
 				lit++;
 				sat_fade_set((SAT_FADE_LIT * lit) / OPENING_FADE_VM_FRAMES);
 			}
 		}
 
 		video._holdDisplay = false;
+		saveAfterResume = false;
+		quitAfterSave = false;
 	}
 
 
@@ -158,6 +175,9 @@ Engine::~Engine(){
 void Engine::init() {
 
 	saveAfterResume = false;
+	quitAfterSave = false;
+	deathSaveError = SAT_BUP_OK;
+	_lastSaveNoBackground = false;
 
 
 	//Init system
@@ -210,6 +230,12 @@ static uint8_t s_saveBuf[SAVE_MAX_BYTES];
  |   position, not Serializer::_bytesCount -- Mixer::saveOrLoad calls
  |   saveOrLoadEntries once per audio channel, and _bytesCount is reset at the
  |   top of every such call, so it only ever holds the last channel's size.
+ |
+ |   The background frame is encoded against the previous scanline, and if the
+ |   result will not fit the space left it is tried again keeping every second
+ |   scanline, then every fourth. A background restored at half height is worth
+ |   far more than the black screen that dropping it entirely produces. Which
+ |   step won is recorded in the frame kind so load can undo it.
  | Author: suinevere
  | Dependencies: savedata.h, saturn_backup.h, serializer.h
  | Globals: s_saveBuf
@@ -238,13 +264,32 @@ bool Engine::saveSlot(uint32_t device, int slot) {
 	}
 
 	const int32_t framePos = (int32_t)(SAVE_HEADER_SIZE + f.tell()) + 4;
-	int32_t frameLen = pageRleEncode(video._curPagePtr2, Video::VID_PAGE_SIZE,
-	                                 s_saveBuf + framePos,
-	                                 (int32_t)sizeof(s_saveBuf) - framePos);
+	const int32_t frameCap = (int32_t)sizeof(s_saveBuf) - framePos;
+
+	static const int s_frameSteps[4] = { 1, 2, 4, 8 };
+	static const uint16_t s_frameKinds[4] = { SAVE_FRAME_DELTA,
+	                                          SAVE_FRAME_DELTA_H2,
+	                                          SAVE_FRAME_DELTA_H4,
+	                                          SAVE_FRAME_DELTA_H8 };
+
+	int32_t frameLen = -1;
+	uint16_t frameKind = SAVE_FRAME_NONE;
+
+	for (int i = 0; i < 4 && frameLen < 0; ++i) {
+		frameLen = pageDeltaEncode(video._curPagePtr2, Video::VID_PAGE_SIZE,
+		                           Video::VID_PAGE_STRIDE, s_frameSteps[i],
+		                           s_saveBuf + framePos, frameCap);
+		if (frameLen > 0) {
+			frameKind = s_frameKinds[i];
+		}
+	}
+
 	if (frameLen < 0) {
 		frameLen = 0;
+		frameKind = SAVE_FRAME_NONE;
 	}
-	f.writeUint16BE((uint16_t)(frameLen > 0 ? 1 : 0));
+	_lastSaveNoBackground = (frameLen == 0);
+	f.writeUint16BE((uint16_t)(frameLen > 0 ? frameKind : SAVE_FRAME_NONE));
 	f.writeUint16BE((uint16_t)frameLen);
 
 	char name[12];
@@ -298,13 +343,32 @@ bool Engine::loadSlot(uint32_t device, int slot) {
 		return false;
 	}
 
-	const uint16_t hasFrame = f.readUint16BE();
+	const uint16_t frameKind = f.readUint16BE();
 	const uint16_t frameLen = f.readUint16BE();
-	if (!f.ioErr() && hasFrame != 0 && frameLen != 0) {
+
+	_lastLoadFrameKind = f.ioErr() ? -1 : (int)frameKind;
+	_lastLoadFrameLen = f.ioErr() ? -1 : (int)frameLen;
+	_lastLoadFrameOk = false;
+
+	if (!f.ioErr() && frameKind != SAVE_FRAME_NONE && frameLen != 0) {
 		const int32_t framePos = (int32_t)(SAVE_HEADER_SIZE + f.tell());
-		if (framePos + frameLen <= (int32_t)sizeof(s_saveBuf) &&
-		    pageRleDecode(s_saveBuf + framePos, frameLen, video._pages[0],
-		                  Video::VID_PAGE_SIZE)) {
+		bool decoded = false;
+
+		if (framePos + frameLen <= (int32_t)sizeof(s_saveBuf)) {
+			const int rowStep = savedataFrameRowStep((int)frameKind);
+			if (rowStep > 0) {
+				decoded = pageDeltaDecode(s_saveBuf + framePos, frameLen,
+				                          video._pages[0], Video::VID_PAGE_SIZE,
+				                          Video::VID_PAGE_STRIDE, rowStep);
+			} else {
+				decoded = pageRleDecode(s_saveBuf + framePos, frameLen,
+				                        video._pages[0], Video::VID_PAGE_SIZE);
+			}
+		}
+
+		_lastLoadFrameOk = decoded;
+
+		if (decoded) {
 			for (int i = 1; i < 4; ++i) {
 				memcpy(video._pages[i], video._pages[0], Video::VID_PAGE_SIZE);
 			}
@@ -313,6 +377,25 @@ bool Engine::loadSlot(uint32_t device, int slot) {
 
 	_lastSaveError = SAT_BUP_OK;
 	return true;
+}
+
+/*----------------------
+ | Engine::autosaveCheckpoint
+ | Description: Writes the run to ENGINE_AUTOSAVE_SLOT via saveSlot. Called as
+ |   a part begins, which is the only moment the engine holds a state worth
+ |   restoring -- a save taken when the player dies restores them into their
+ |   own death.
+ |
+ |   No longer clears lastSaveError: a caller reports why a save failed
+ |   instead of the failure being swallowed.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: true when the write succeeded
+ ----------------------*/
+bool Engine::autosaveCheckpoint() {
+	return saveSlot(ENGINE_AUTOSAVE_DEVICE, ENGINE_AUTOSAVE_SLOT);
 }
 
 /*----------------------
@@ -333,11 +416,6 @@ bool Engine::loadSlot(uint32_t device, int slot) {
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-void Engine::autosaveCheckpoint() {
-	saveSlot(ENGINE_AUTOSAVE_DEVICE, ENGINE_AUTOSAVE_SLOT);
-	_lastSaveError = SAT_BUP_OK;
-}
-
 void Engine::startNewGame() {
 #ifdef BYPASS_PROTECTION
 	vm.initForPart(GAME_PART3);

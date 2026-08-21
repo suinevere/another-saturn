@@ -171,64 +171,85 @@ static void test_load_rejects_a_foreign_record(void)
     CHECK(s.swapButtons);
 }
 
-static void test_default_layout_acts_on_a_and_c(void)
+static void test_default_layout_gives_each_button_one_action(void)
 {
-    bool jump = true, action = false;
-
-    settingsMapFaceButtons(true, false, false, false, &jump, &action);
+    bool jump = true, action = false, run = true;
+    settingsMapFaceButtons(true, false, false, false, &jump, &action, &run);
     CHECK(action);
     CHECK(!jump);
+    CHECK(!run);
 
-    settingsMapFaceButtons(false, false, true, false, &jump, &action);
-    CHECK(action);
+    jump = true;
+    action = true;
+    run = false;
+    settingsMapFaceButtons(false, true, false, false, &jump, &action, &run);
+    CHECK(run);
+    CHECK(!action);
     CHECK(!jump);
+
+    jump = false;
+    action = true;
+    run = true;
+    settingsMapFaceButtons(false, false, true, false, &jump, &action, &run);
+    CHECK(jump);
+    CHECK(!action);
+    CHECK(!run);
 }
 
-static void test_default_layout_jumps_on_b(void)
+static void test_swapped_layout_exchanges_attack_and_jump(void)
 {
-    bool jump = false, action = true;
-    settingsMapFaceButtons(false, true, false, false, &jump, &action);
-    CHECK(jump);
-    CHECK(!action);
-}
-
-static void test_swapped_layout_reverses_both(void)
-{
-    bool jump = false, action = false;
-
-    settingsMapFaceButtons(true, false, false, true, &jump, &action);
-    CHECK(jump);
-    CHECK(!action);
-
-    settingsMapFaceButtons(false, false, true, true, &jump, &action);
-    CHECK(jump);
-    CHECK(!action);
-
-    settingsMapFaceButtons(false, true, false, true, &jump, &action);
+    bool jump = true, action = false, run = true;
+    settingsMapFaceButtons(false, false, true, true, &jump, &action, &run);
     CHECK(action);
     CHECK(!jump);
+    CHECK(!run);
+
+    jump = false;
+    action = true;
+    run = true;
+    settingsMapFaceButtons(true, false, false, true, &jump, &action, &run);
+    CHECK(jump);
+    CHECK(!action);
+    CHECK(!run);
+}
+
+static void test_run_stays_on_b_in_both_layouts(void)
+{
+    bool jump = true, action = true, run = false;
+    settingsMapFaceButtons(false, true, false, false, &jump, &action, &run);
+    CHECK(run);
+
+    jump = true;
+    action = true;
+    run = false;
+    settingsMapFaceButtons(false, true, false, true, &jump, &action, &run);
+    CHECK(run);
 }
 
 static void test_nothing_held_maps_to_nothing(void)
 {
-    bool jump = true, action = true;
-    settingsMapFaceButtons(false, false, false, false, &jump, &action);
+    bool jump = true, action = true, run = true;
+    settingsMapFaceButtons(false, false, false, false, &jump, &action, &run);
     CHECK(!jump);
     CHECK(!action);
+    CHECK(!run);
 
     jump = true;
     action = true;
-    settingsMapFaceButtons(false, false, false, true, &jump, &action);
+    run = true;
+    settingsMapFaceButtons(false, false, false, true, &jump, &action, &run);
     CHECK(!jump);
     CHECK(!action);
+    CHECK(!run);
 }
 
-static void test_both_actions_can_be_held_at_once(void)
+static void test_all_three_can_be_held_at_once(void)
 {
-    bool jump = false, action = false;
-    settingsMapFaceButtons(true, true, false, false, &jump, &action);
-    CHECK(jump);
+    bool jump = false, action = false, run = false;
+    settingsMapFaceButtons(true, true, true, false, &jump, &action, &run);
     CHECK(action);
+    CHECK(run);
+    CHECK(jump);
 }
 
 int main(void)
@@ -243,11 +264,11 @@ int main(void)
     test_store_overwrites_an_existing_record();
     test_store_reports_a_missing_device();
     test_load_rejects_a_foreign_record();
-    test_default_layout_acts_on_a_and_c();
-    test_default_layout_jumps_on_b();
-    test_swapped_layout_reverses_both();
+    test_default_layout_gives_each_button_one_action();
+    test_swapped_layout_exchanges_attack_and_jump();
+    test_run_stays_on_b_in_both_layouts();
     test_nothing_held_maps_to_nothing();
-    test_both_actions_can_be_held_at_once();
+    test_all_three_can_be_held_at_once();
 
     if (g_fail == 0) {
         printf("all tests passed\n");

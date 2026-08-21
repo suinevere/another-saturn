@@ -625,6 +625,20 @@ void VirtualMachine::executeThread() {
 	}
 }
 
+/*----------------------
+ | VirtualMachine::inp_updatePlayer
+ | Description: Turns one frame of PlayerInput into the six variables the
+ |   bytecode reads. The script has no run opcode: it infers a run from the
+ |   action bit being set while a left or right bit is set in the same mask,
+ |   which is why holding attack used to run. Attack therefore suppresses
+ |   left and right, so it can only ever shoot, and run raises the action bit
+ |   itself but only while a direction is held, so it can only ever run.
+ | Author: suinevere
+ | Dependencies: sys.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 void VirtualMachine::inp_updatePlayer() {
 
 	sys->processEvents();
@@ -650,11 +664,13 @@ void VirtualMachine::inp_updatePlayer() {
 	int16_t m = 0;
 	int16_t ud = 0;
 
-	if (sys->input.dirMask & PlayerInput::DIR_RIGHT) {
+	const bool attack = sys->input.button;
+
+	if (!attack && (sys->input.dirMask & PlayerInput::DIR_RIGHT)) {
 		lr = 1;
 		m |= 1;
 	}
-	if (sys->input.dirMask & PlayerInput::DIR_LEFT) {
+	if (!attack && (sys->input.dirMask & PlayerInput::DIR_LEFT)) {
 		lr = -1;
 		m |= 2;
 	}
@@ -665,13 +681,13 @@ void VirtualMachine::inp_updatePlayer() {
 
 	vmVariables[VM_VARIABLE_HERO_POS_UP_DOWN] = ud;
 
-	const bool up = (sys->input.dirMask & PlayerInput::DIR_UP) || sys->input.jump;
+	const bool upDir = (sys->input.dirMask & PlayerInput::DIR_UP) != 0;
 
-	if (up) {
+	if (upDir || sys->input.jump) {
 		vmVariables[VM_VARIABLE_HERO_POS_UP_DOWN] = -1;
 	}
 
-	if (up) { // inpJump
+	if (sys->input.jump) {
 		ud = -1;
 		m |= 8;
 	}
@@ -681,7 +697,7 @@ void VirtualMachine::inp_updatePlayer() {
 	vmVariables[VM_VARIABLE_HERO_POS_MASK] = m;
 	int16_t button = 0;
 
-	if (sys->input.button) { // inpButton
+	if (attack || (sys->input.run && lr != 0)) {
 		button = 1;
 		m |= 0x80;
 	}

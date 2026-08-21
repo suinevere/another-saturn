@@ -123,41 +123,6 @@ static void test_probe_old_version(void)
     CHECK_EQ(savedataProbe(SAT_BUP_INTERNAL, 0, &info), SLOT_OLD_VERSION);
 }
 
-static void test_default_device_no_cart(void)
-{
-    SatBupDev internal = {1, 1, 0, 29000};
-    SatBupDev cart = {0, 0, 0, 0};
-    CHECK_EQ(savedataPickDefaultDevice(&internal, &cart, 0, 0), SAT_BUP_INTERNAL);
-}
-
-static void test_default_device_cart_has_saves(void)
-{
-    SatBupDev internal = {1, 1, 0, 29000};
-    SatBupDev cart = {1, 1, 0, 480000};
-    CHECK_EQ(savedataPickDefaultDevice(&internal, &cart, 0, 1), SAT_BUP_CART);
-}
-
-static void test_default_device_internal_has_saves(void)
-{
-    SatBupDev internal = {1, 1, 0, 29000};
-    SatBupDev cart = {1, 1, 0, 480000};
-    CHECK_EQ(savedataPickDefaultDevice(&internal, &cart, 1, 0), SAT_BUP_INTERNAL);
-}
-
-static void test_default_device_both_have_saves(void)
-{
-    SatBupDev internal = {1, 1, 0, 29000};
-    SatBupDev cart = {1, 1, 0, 480000};
-    CHECK_EQ(savedataPickDefaultDevice(&internal, &cart, 1, 1), SAT_BUP_INTERNAL);
-}
-
-static void test_default_device_cart_present_but_empty(void)
-{
-    SatBupDev internal = {1, 1, 0, 29000};
-    SatBupDev cart = {1, 1, 0, 480000};
-    CHECK_EQ(savedataPickDefaultDevice(&internal, &cart, 0, 0), SAT_BUP_INTERNAL);
-}
-
 static void test_chapter_names(void)
 {
     CHECK(savedataChapterName(0x3E81) != 0);
@@ -174,11 +139,6 @@ int main(void)
     test_probe_good_slot();
     test_probe_damaged_slot();
     test_probe_old_version();
-    test_default_device_no_cart();
-    test_default_device_cart_has_saves();
-    test_default_device_internal_has_saves();
-    test_default_device_both_have_saves();
-    test_default_device_cart_present_but_empty();
     test_chapter_names();
 
     if (g_fail == 0) {

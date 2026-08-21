@@ -1,7 +1,8 @@
 /*----------------------
  | menu_state.cxx
- | Description: The title, pause, slot-list and confirm screen transitions.
- |   Pure logic: no drawing, no backup RAM calls, no engine references.
+ | Description: The title, pause, slot-list, confirm and death screen
+ |   transitions. Pure logic: no drawing, no backup RAM calls, no engine
+ |   references.
  | Author: suinevere
  | Dependencies: menu_state.h
  ----------------------*/
@@ -18,7 +19,6 @@ void menuStateEnterTitle(MenuState *st)
 {
 	st->screen = MENU_TITLE;
 	st->cursor = 0;
-	st->retryRow = false;
 }
 
 /*----------------------
@@ -32,7 +32,6 @@ void menuStateEnterPause(MenuState *st)
 {
 	st->screen = MENU_PAUSE;
 	st->cursor = 0;
-	st->retryRow = false;
 }
 
 /*----------------------
@@ -110,53 +109,107 @@ static MenuAction stepPause(MenuState *st, const MenuInput *in)
 
 /*----------------------
  | menuStateEnterLoad
- | Description: Opens the slot list in load mode with no screen behind it, for
- |   the death prompt. returnScreen is set here rather than by the caller
- |   because it stays private to this file.
+ | Description: Opens the slot list directly, in load mode, for a caller that
+ |   has no screen behind it. back is where a cancel lands.
  | Author: suinevere
- | Params: st -- state to reset; back -- where a cancel lands; retry -- whether
- |   to offer the retry row
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: st -- state to reset; back -- the screen a cancel returns to
  | Returns: N/A
  ----------------------*/
-void menuStateEnterLoad(MenuState *st, MenuScreen back, bool retry)
+void menuStateEnterLoad(MenuState *st, MenuScreen back)
 {
 	st->screen = MENU_SLOTS;
 	st->returnScreen = back;
 	st->saving = false;
-	st->slotCursor = retry ? MENU_SLOT_RESUME : 0;
+	st->slotCursor = 0;
 	st->confirmYes = false;
-	st->retryRow = retry;
 	st->pending = MENU_ACT_NONE;
 }
 
 /*----------------------
+ | menuStateEnterDeath
+ | Description: Resets a MenuState to the death menu, cursor on resume.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: st -- state to reset
+ | Returns: N/A
+ ----------------------*/
+void menuStateEnterDeath(MenuState *st)
+{
+	st->screen = MENU_DEATH;
+	st->cursor = 0;
+}
+
+/*----------------------
+ | stepDeath
+ | Description: Death menu transitions: 5 items -- resume, save and resume,
+ |   load, save and quit, quit. Cancel resumes from any row, which is the same
+ |   thing the resume row does: there is no screen behind this one to retreat
+ |   to.
+ | Author: suinevere
+ | Params: st -- state to advance; in -- this frame's input
+ | Returns: at most one action
+ ----------------------*/
+static MenuAction stepDeath(MenuState *st, const MenuInput *in)
+{
+	if (in->cancel) {
+		return MENU_ACT_RETRY;
+	}
+	if (in->up) {
+		st->cursor = (st->cursor + 4) % 5;
+		return MENU_ACT_NONE;
+	}
+	if (in->down) {
+		st->cursor = (st->cursor + 1) % 5;
+		return MENU_ACT_NONE;
+	}
+	if (in->confirm) {
+		if (st->cursor == 0) {
+			return MENU_ACT_RETRY;
+		}
+		if (st->cursor == 1) {
+			return MENU_ACT_SAVE_RETRY;
+		}
+		if (st->cursor == 2) {
+			st->returnScreen = MENU_DEATH;
+			st->screen = MENU_SLOTS;
+			st->saving = false;
+			st->slotCursor = 0;
+			return MENU_ACT_RESCAN_SLOTS;
+		}
+		if (st->cursor == 3) {
+			return MENU_ACT_SAVE_AND_QUIT;
+		}
+		return MENU_ACT_RETURN_TO_TITLE;
+	}
+	return MENU_ACT_NONE;
+}
+
+/*----------------------
  | stepSlots
- | Description: Slot-list transitions: row cursor, device toggle when a cart
- |   is present, cancel back to the opening screen, and confirm -- which
- |   saves or loads depending on st->saving and the selected slot's state.
+ | Description: Slot list transitions: three slots, a device toggle on left or
+ |   right when a cartridge is present, and a cancel back to whichever screen
+ |   opened it.
  | Author: suinevere
  | Params: st -- state to advance; in -- this frame's input
  | Returns: at most one action
  ----------------------*/
 static MenuAction stepSlots(MenuState *st, const MenuInput *in)
 {
-	// Backing out of the death menu is a resume, not a retreat -- there is no
-	// screen behind it, and leaving the run is its own row now.
 	if (in->cancel) {
-		if (st->retryRow) {
-			return MENU_ACT_RETRY;
-		}
 		st->screen = st->returnScreen;
 		return MENU_ACT_NONE;
 	}
-	const int first = st->retryRow ? MENU_SLOT_RESUME : 0;
-	const int last = st->retryRow ? MENU_SLOT_TITLE : SAVE_NUM_SLOTS - 1;
 	if (in->up) {
-		st->slotCursor = (st->slotCursor > first) ? st->slotCursor - 1 : last;
+		st->slotCursor = (st->slotCursor > 0) ? st->slotCursor - 1
+		                                      : SAVE_NUM_SLOTS - 1;
 		return MENU_ACT_NONE;
 	}
 	if (in->down) {
-		st->slotCursor = (st->slotCursor < last) ? st->slotCursor + 1 : first;
+		st->slotCursor = (st->slotCursor < SAVE_NUM_SLOTS - 1)
+		                     ? st->slotCursor + 1 : 0;
 		return MENU_ACT_NONE;
 	}
 	if (in->left || in->right) {
@@ -164,19 +217,10 @@ static MenuAction stepSlots(MenuState *st, const MenuInput *in)
 			return MENU_ACT_NONE;
 		}
 		st->device = (st->device == SAT_BUP_INTERNAL) ? SAT_BUP_CART
-		                                               : SAT_BUP_INTERNAL;
+		                                             : SAT_BUP_INTERNAL;
 		return MENU_ACT_RESCAN_SLOTS;
 	}
 	if (in->confirm) {
-		if (st->slotCursor == MENU_SLOT_RESUME) {
-			return MENU_ACT_RETRY;
-		}
-		if (st->slotCursor == MENU_SLOT_SAVE_RESUME) {
-			return MENU_ACT_SAVE_RETRY;
-		}
-		if (st->slotCursor == MENU_SLOT_TITLE) {
-			return MENU_ACT_RETURN_TO_TITLE;
-		}
 		SlotState state = st->slots[st->slotCursor].state;
 		if (st->saving) {
 			if (state == SLOT_EMPTY) {
@@ -200,7 +244,10 @@ static MenuAction stepSlots(MenuState *st, const MenuInput *in)
  | Description: Yes/no prompt transitions. confirmYes starts false whenever
  |   the screen is entered; left/right flip it, cancel and a "no" confirm
  |   both back out to the screen that asked, and a "yes" confirm carries out
- |   st->pending and lands on the screen the caller expects for it.
+ |   st->pending and lands on the same screen a "no" would, so a slot write
+ |   returns to the list where its rescan and any failure are visible. Only
+ |   returning to the title leaves for somewhere else, because there is no
+ |   list to go back to.
  | Author: suinevere
  | Params: st -- state to advance; in -- this frame's input
  | Returns: st->pending on a "yes" confirm, MENU_ACT_NONE otherwise
@@ -225,7 +272,7 @@ static MenuAction stepConfirm(MenuState *st, const MenuInput *in)
 		}
 		MenuAction action = st->pending;
 		st->screen =
-		    (action == MENU_ACT_RETURN_TO_TITLE) ? MENU_TITLE : MENU_PAUSE;
+		    (action == MENU_ACT_RETURN_TO_TITLE) ? MENU_TITLE : declineScreen;
 		return action;
 	}
 	return MENU_ACT_NONE;
@@ -250,6 +297,8 @@ MenuAction menuStateStep(MenuState *st, const MenuInput *in)
 		return stepSlots(st, in);
 	case MENU_CONFIRM:
 		return stepConfirm(st, in);
+	case MENU_DEATH:
+		return stepDeath(st, in);
 	default:
 		return MENU_ACT_NONE;
 	}

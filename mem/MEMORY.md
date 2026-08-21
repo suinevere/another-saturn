@@ -17,3 +17,5 @@
 - [Introduction load seam](intro-load-seam.md) — the 15s black before the introduction, measured stage by stage and cut to 6.5s; the per-call disc latency, the cache that silently stopped working, and the two fixes that backfired.
 - [Chain-loadable boot](chain-loadable-boot.md) — what sat_boot_sanitize reasserts before SRL comes up, and why a program that loads us over itself needs it.
 - [Death menu and loading pump](death-menu-and-loading-pump.md) — handoff at 4d92865; the access code screen is not a part, and the strings that are the only signal for it.
+- [port/death-menu branch state](port-death-menu-branch-state.md) — handoff: the branch now also carries a button remap, two save-overwrite fixes and a working background restore; integration still undecided.
+- [Death menu rework (partly stale)](death-menu-rework-in-flight.md) — superseded on branch state; still good for heart-of-the-saturn, the branch tangle and two coverage traps.

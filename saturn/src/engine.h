@@ -39,7 +39,8 @@ struct System;
  | Author: suinevere
  ----------------------*/
 enum {
-	ENGINE_SAVE_ERR_TOO_LARGE = 100
+	ENGINE_SAVE_ERR_TOO_LARGE = 100,
+	ENGINE_SAVE_WARN_NO_BACKGROUND = 101
 };
 
 struct Engine {
@@ -51,6 +52,10 @@ struct Engine {
 	Video video;
 	const char *_dataDir, *_saveDir;
 	int _lastSaveError;
+	bool _lastSaveNoBackground;
+	int _lastLoadFrameKind;
+	int _lastLoadFrameLen;
+	bool _lastLoadFrameOk;
 
 	Engine(System *stub, const char *dataDir, const char *saveDir);
 	~Engine();
@@ -79,14 +84,41 @@ struct Engine {
 	 |   restoring -- a save taken when the player dies restores them into their
 	 |   own death.
 	 |
-	 |   Failures are swallowed on purpose. A missing or unformatted backup
-	 |   device is not something to interrupt play over, and the player finds out
-	 |   the ordinary way when the slot list shows nothing.
+	 |   Failures are reported, not swallowed: the return value tells the caller
+	 |   whether the write succeeded, and the deferred-save path in Engine::run
+	 |   uses it to re-open the death menu with the reason.
 	 | Author: suinevere
 	 | Params: N/A
-	 | Returns: N/A
+	 | Returns: true when the write succeeded
 	 ----------------------*/
-	void autosaveCheckpoint();
+	bool autosaveCheckpoint();
+
+	/*----------------------
+	 | Engine::lastSaveDroppedBackground
+	 | Description: Whether the last save wrote its state but had no room left
+	 |   for the background image. The save is still loadable; it just restores
+	 |   to a black screen, which is invisible until the player loads it and is
+	 |   why it is reported rather than silently accepted.
+	 | Author: suinevere
+	 | Params: N/A
+	 | Returns: true when the background was dropped
+	 ----------------------*/
+	bool lastSaveDroppedBackground() const { return _lastSaveNoBackground; }
+
+	/*----------------------
+	 | Engine::lastLoadFrameKind / lastLoadFrameLen / lastLoadFrameOk
+	 | Description: What the last loadSlot found where the background image
+	 |   should be: the codec tag, its byte count, and whether it decoded.
+	 |   Diagnostic only -- the background restore has never worked and these
+	 |   are what tell a black screen apart from an absent frame, a refused
+	 |   decode, and a decode that succeeded and was then overdrawn.
+	 | Author: suinevere
+	 | Params: N/A
+	 | Returns: the recorded value
+	 ----------------------*/
+	int lastLoadFrameKind() const { return _lastLoadFrameKind; }
+	int lastLoadFrameLen() const { return _lastLoadFrameLen; }
+	bool lastLoadFrameOk() const { return _lastLoadFrameOk; }
 
 	/*----------------------
 	 | Engine::saveAfterResume
@@ -97,6 +129,26 @@ struct Engine {
 	 | Author: suinevere
 	 ----------------------*/
 	bool saveAfterResume;
+
+	/*----------------------
+	 | Engine::quitAfterSave
+	 | Description: Set with saveAfterResume by the death menu's save-and-quit
+	 |   row. The save itself cannot happen at menu time -- the state then is the
+	 |   death -- so the row resumes, lets the deferred save write the checkpoint
+	 |   the script has since reached, and this flag says to leave afterwards.
+	 | Author: suinevere
+	 ----------------------*/
+	bool quitAfterSave;
+
+	/*----------------------
+	 | Engine::deathSaveError
+	 | Description: A deferred save's failure, waiting to be shown. Non-OK
+	 |   re-opens the death menu carrying the message, because by the time the
+	 |   write happens the menu has been closed for about two seconds and there
+	 |   is no box on screen to report into.
+	 | Author: suinevere
+	 ----------------------*/
+	int deathSaveError;
 
 	void startNewGame();
 
